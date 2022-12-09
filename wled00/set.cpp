@@ -500,11 +500,12 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     // global I2C & SPI pins
     int8_t hw_sda_pin  = !request->arg(F("SDA")).length() ? -1 : (int)request->arg(F("SDA")).toInt();
     int8_t hw_scl_pin  = !request->arg(F("SCL")).length() ? -1 : (int)request->arg(F("SCL")).toInt();
-    #ifdef ESP8266
-    // cannot change pins on ESP8266
-    if (hw_sda_pin >= 0 && hw_sda_pin != HW_PIN_SDA) hw_sda_pin = HW_PIN_SDA;
-    if (hw_scl_pin >= 0 && hw_scl_pin != HW_PIN_SCL) hw_scl_pin = HW_PIN_SCL;
-    #endif
+     //WLEDMM simplify i2C
+    // #ifdef ESP8266
+    // // cannot change pins on ESP8266
+    // if (hw_sda_pin >= 0 && hw_sda_pin != HW_PIN_SDA) hw_sda_pin = HW_PIN_SDA;
+    // if (hw_scl_pin >= 0 && hw_scl_pin != HW_PIN_SCL) hw_scl_pin = HW_PIN_SCL;
+    // #endif
     PinManagerPinType i2c[2] = { { hw_sda_pin, true }, { hw_scl_pin, true } };
     if (hw_sda_pin >= 0 && hw_scl_pin >= 0 && pinManager.allocateMultiplePins(i2c, 2, PinOwner::HW_I2C)) {
       i2c_sda = hw_sda_pin;
@@ -518,18 +519,20 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("Could not allocate I2C pins."));
       uint8_t i2c[2] = { static_cast<uint8_t>(i2c_scl), static_cast<uint8_t>(i2c_sda) };
       pinManager.deallocateMultiplePins(i2c, 2, PinOwner::HW_I2C); // just in case deallocation of old pins
-      i2c_sda = -1;
-      i2c_scl = -1;
+      //WLEDMM simplify i2C
+      // i2c_sda = -1;
+      // i2c_scl = -1;
     }
     int8_t hw_mosi_pin = !request->arg(F("MOSI")).length() ? -1 : (int)request->arg(F("MOSI")).toInt();
     int8_t hw_miso_pin = !request->arg(F("MISO")).length() ? -1 : (int)request->arg(F("MISO")).toInt();
     int8_t hw_sclk_pin = !request->arg(F("SCLK")).length() ? -1 : (int)request->arg(F("SCLK")).toInt();
-    #ifdef ESP8266
-    // cannot change pins on ESP8266
-    if (hw_mosi_pin >= 0 && hw_mosi_pin != HW_PIN_DATASPI)  hw_mosi_pin = HW_PIN_DATASPI;
-    if (hw_miso_pin >= 0 && hw_miso_pin != HW_PIN_MISOSPI)  hw_mosi_pin = HW_PIN_MISOSPI;
-    if (hw_sclk_pin >= 0 && hw_sclk_pin != HW_PIN_CLOCKSPI) hw_sclk_pin = HW_PIN_CLOCKSPI;
-    #endif
+    //WLEDMM simplify i2C
+    // #ifdef ESP8266
+    // // cannot change pins on ESP8266
+    // if (hw_mosi_pin >= 0 && hw_mosi_pin != HW_PIN_DATASPI)  hw_mosi_pin = HW_PIN_DATASPI;
+    // if (hw_miso_pin >= 0 && hw_miso_pin != HW_PIN_MISOSPI)  hw_mosi_pin = HW_PIN_MISOSPI;
+    // if (hw_sclk_pin >= 0 && hw_sclk_pin != HW_PIN_CLOCKSPI) hw_sclk_pin = HW_PIN_CLOCKSPI;
+    // #endif
     PinManagerPinType spi[3] = { { hw_mosi_pin, true }, { hw_miso_pin, true }, { hw_sclk_pin, true } };
     if (hw_mosi_pin >= 0 && hw_sclk_pin >= 0 && pinManager.allocateMultiplePins(spi, 3, PinOwner::HW_SPI)) {
       spi_mosi = hw_mosi_pin;
@@ -547,9 +550,10 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("Could not allocate SPI pins."));
       uint8_t spi[3] = { static_cast<uint8_t>(spi_mosi), static_cast<uint8_t>(spi_miso), static_cast<uint8_t>(spi_sclk) };
       pinManager.deallocateMultiplePins(spi, 3, PinOwner::HW_SPI); // just in case deallocation of old pins
-      spi_mosi = -1;
-      spi_miso = -1;
-      spi_sclk = -1;
+      //WLEDMM simplify i2C
+      // spi_mosi = -1;
+      // spi_miso = -1;
+      // spi_sclk = -1;
     }
 
     JsonObject um = doc.createNestedObject("um");

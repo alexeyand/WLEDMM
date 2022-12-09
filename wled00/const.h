@@ -402,10 +402,10 @@
   #undef HW_PIN_SDA
 #endif
 #ifndef HW_PIN_SCL
-  #define HW_PIN_SCL SCL
+  #define HW_PIN_SCL -1 //WLEDMM simplify i2C: no SCL
 #endif
 #ifndef HW_PIN_SDA
-  #define HW_PIN_SDA SDA
+  #define HW_PIN_SDA -1 //WLEDMM simplify i2C: noSDA
 #endif
 
 #if defined(ESP8266) && defined(HW_PIN_CLOCKSPI)
@@ -422,13 +422,13 @@
 #endif
 // defaults for VSPI
 #ifndef HW_PIN_CLOCKSPI
-  #define HW_PIN_CLOCKSPI SCK
+  #define HW_PIN_CLOCKSPI -1 //WLEDMM simplify i2C: no SCK
 #endif
 #ifndef HW_PIN_DATASPI
-  #define HW_PIN_DATASPI MOSI
+  #define HW_PIN_DATASPI -1 //WLEDMM simplify i2C: no MOSI
 #endif
 #ifndef HW_PIN_MISOSPI
-  #define HW_PIN_MISOSPI MISO
+  #define HW_PIN_MISOSPI -1 //WLEDMM simplify i2C: no MISO
 #endif
 #ifndef HW_PIN_CSSPI
   #define HW_PIN_CSSPI SS

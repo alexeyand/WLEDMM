@@ -52,15 +52,16 @@ private:
   static const char _offset[];
   static const char _HomeAssistantDiscovery[];
 
+  //WLEDMM simplify i2C
   // set the default pins based on the architecture, these get overridden by Usermod menu settings
-  #ifdef ARDUINO_ARCH_ESP32 // ESP32 boards
-    #define HW_PIN_SCL 22
-    #define HW_PIN_SDA 21
-  #else // ESP8266 boards
-    #define HW_PIN_SCL 5
-    #define HW_PIN_SDA 4
-  #endif
-  int8_t ioPin[2] = {HW_PIN_SCL, HW_PIN_SDA};        // I2C pins: SCL, SDA...defaults to Arch hardware pins but overridden at setup()
+  // #ifdef ARDUINO_ARCH_ESP32 // ESP32 boards
+  //   #define HW_PIN_SCL 22
+  //   #define HW_PIN_SDA 21
+  // #else // ESP8266 boards
+  //   #define HW_PIN_SCL 5
+  //   #define HW_PIN_SDA 4
+  // #endif
+  int8_t ioPin[2] = {i2c_scl, i2c_sda};        // I2C pins: SCL, SDA...defaults to Arch hardware pins but overridden at setup()
   bool initDone = false;
   bool sensorFound = false;
 
@@ -119,7 +120,8 @@ private:
 public:
   void setup()
   {
-    bool HW_Pins_Used = (ioPin[0]==HW_PIN_SCL && ioPin[1]==HW_PIN_SDA); // note whether architecture-based hardware SCL/SDA pins used
+    //WLEDMM simplify i2C
+    bool HW_Pins_Used = (ioPin[0]==i2c_scl && ioPin[1]==i2c_sda); // note whether architecture-based hardware SCL/SDA pins used
     PinOwner po = PinOwner::UM_BH1750; // defaults to being pinowner for SCL/SDA pins
     PinManagerPinType pins[2] = { { ioPin[0], true }, { ioPin[1], true } };  // allocate pins
     if (HW_Pins_Used) po = PinOwner::HW_I2C; // allow multiple allocations of HW I2C bus pins
@@ -252,7 +254,8 @@ public:
       for (byte i=0; i<2; i++) if (ioPin[i] != newPin[i]) { pinsChanged = true; break; } // check if any pins changed
       if (pinsChanged) { //if pins changed, deallocate old pins and allocate new ones
         PinOwner po = PinOwner::UM_BH1750;
-        if (ioPin[0]==HW_PIN_SCL && ioPin[1]==HW_PIN_SDA) po = PinOwner::HW_I2C;  // allow multiple allocations of HW I2C bus pins
+        //WLEDMM simplify i2C
+        if (ioPin[0]==i2c_scl && ioPin[1]==i2c_sda) po = PinOwner::HW_I2C;  // allow multiple allocations of HW I2C bus pins
         pinManager.deallocateMultiplePins((const uint8_t *)ioPin, 2, po);  // deallocate pins
         for (byte i=0; i<2; i++) ioPin[i] = newPin[i];
         setup();

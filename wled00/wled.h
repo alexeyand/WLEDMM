@@ -677,11 +677,32 @@ WLED_GLOBAL uint16_t ledMaps _INIT(0); // bitfield representation of available l
 // Usermod manager
 WLED_GLOBAL UsermodManager usermods _INIT(UsermodManager());
 
-WLED_GLOBAL int8_t i2c_sda  _INIT(-1);      // global I2C SDA pin [HW_PIN_SDA] (used for usermods)
-WLED_GLOBAL int8_t i2c_scl  _INIT(-1);      // global I2C SCL pin [HW_PIN_SCL] (used for usermods)
-WLED_GLOBAL int8_t spi_mosi _INIT(-1);      // global SPI DATA/MOSI pin [HW_PIN_DATASPI] (used for usermods)
-WLED_GLOBAL int8_t spi_miso _INIT(-1);      // global SPI DATA/MISO pin [HW_PIN_MISOSPI] (used for usermods)
-WLED_GLOBAL int8_t spi_sclk _INIT(-1);      // global SPI CLOCK/SCLK pin [HW_PIN_CLOCKSPI] (used for usermods)
+//WLEDMM simplify i2C: init to HW_PIN values
+#ifdef HW_PIN_SDA
+  WLED_GLOBAL int8_t i2c_sda  _INIT(HW_PIN_SDA);      // global I2C SDA pin [HW_PIN_SDA] (used for usermods)
+#else
+  WLED_GLOBAL int8_t i2c_sda  _INIT(-1);      // global I2C SDA pin [HW_PIN_SDA] (used for usermods)
+#endif
+#ifdef HW_PIN_SCL
+  WLED_GLOBAL int8_t i2c_scl  _INIT(HW_PIN_SCL);      // global I2C SCL pin [HW_PIN_SCL] (used for usermods)
+#else
+  WLED_GLOBAL int8_t i2c_scl  _INIT(-1);      // global I2C SCL pin [HW_PIN_SCL] (used for usermods)
+#endif
+#ifdef HW_PIN_DATASPI
+  WLED_GLOBAL int8_t spi_mosi _INIT(HW_PIN_DATASPI);      // global SPI DATA/MOSI pin [HW_PIN_DATASPI] (used for usermods)
+#else
+  WLED_GLOBAL int8_t spi_mosi _INIT(-1);      // global SPI DATA/MOSI pin [HW_PIN_DATASPI] (used for usermods)
+#endif
+#ifdef HW_PIN_MISOSPI
+  WLED_GLOBAL int8_t spi_miso _INIT(HW_PIN_MISOSPI);      // global SPI DATA/MISO pin [HW_PIN_MISOSPI] (used for usermods)
+#else
+  WLED_GLOBAL int8_t spi_miso _INIT(-1);      // global SPI DATA/MISO pin [HW_PIN_MISOSPI] (used for usermods)
+#endif
+#ifdef HW_PIN_CLOCKSPI
+  WLED_GLOBAL int8_t spi_sclk _INIT(HW_PIN_CLOCKSPI);      // global SPI CLOCK/SCLK pin [HW_PIN_CLOCKSPI] (used for usermods)
+#else
+  WLED_GLOBAL int8_t spi_sclk _INIT(-1);      // global SPI CLOCK/SCLK pin [HW_PIN_CLOCKSPI] (used for usermods)
+#endif
 
 // global ArduinoJson buffer
 WLED_GLOBAL StaticJsonDocument<JSON_BUFFER_SIZE> doc;

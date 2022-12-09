@@ -180,7 +180,7 @@ class Si7021_MQTT_HA : public Usermod
     {
       if (enabled) {
         Serial.println("Si7021_MQTT_HA: Starting!");
-        Wire.begin(SDA_PIN, SCL_PIN);
+        Wire.begin(SDA_PIN, SCL_PIN); // WLEDMM should use i2c_scl and i2c_sda...
         Serial.println("Si7021_MQTT_HA: Initializing sensors.. ");
         _initializeSensor();
       }

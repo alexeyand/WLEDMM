@@ -10,6 +10,7 @@ void UpdateBME280Data();
 BME280I2C bme;    // Default : forced mode, standby time = 1000 ms
                   // Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
 
+// WLEDMM should use i2c_scl and i2c_sda...
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
@@ -53,7 +54,7 @@ void userSetup() {
   u8x8.setContrast(10); //Contrast setup will help to preserve OLED lifetime. In case OLED need to be brighter increase number up to 255
   u8x8.setFont(u8x8_font_chroma48medium8_r);
   u8x8.drawString(0, 0, "Loading...");
-  Wire.begin(SDA_PIN,SCL_PIN);
+  Wire.begin(SDA_PIN,SCL_PIN); // WLEDMM should use i2c_scl and i2c_sda...
 
 while(!bme.begin())
   {

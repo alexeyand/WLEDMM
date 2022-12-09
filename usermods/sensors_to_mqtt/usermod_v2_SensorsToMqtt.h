@@ -12,6 +12,7 @@ Adafruit_BMP280 bmp;
 Adafruit_Si7021 si7021;
 Adafruit_CCS811 ccs811;
 
+// WLEDMM should use i2c_scl and i2c_sda...
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
@@ -227,7 +228,7 @@ public:
   void setup()
   {
     Serial.println("Starting!");
-    Wire.begin(SDA_PIN, SCL_PIN);
+    Wire.begin(SDA_PIN, SCL_PIN); // WLEDMM should use i2c_scl and i2c_sda...
     Serial.println("Initializing sensors.. ");
     _initialize();
   }

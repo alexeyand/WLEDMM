@@ -32,21 +32,22 @@
   #define FLD_PIN_SDA i2c_sda
 #endif
 #ifndef FLD_PIN_CLOCKSPI
-  #define FLD_PIN_CLOCKSPI spi_sclk
+  #define FLD_PIN_CLOCKSPI spi_sclk //WLEDMM: will use global value, not possible to customize local, without end user knowing
 #endif
   #ifndef FLD_PIN_DATASPI
-  #define FLD_PIN_DATASPI spi_mosi
+  #define FLD_PIN_DATASPI spi_mosi //WLEDMM: will use global value, not possible to customize local, without end user knowing
 #endif   
 #ifndef FLD_PIN_CS
-  #define FLD_PIN_CS spi_cs
+  #define FLD_PIN_CS spi_cs //WLEDMM spi_cs does not exist so does not compile for spi!!!
 #endif
 
+//WLEDMM: hardcoded pins???
 #ifdef ARDUINO_ARCH_ESP32
   #ifndef FLD_PIN_DC
-    #define FLD_PIN_DC 19
+    #define FLD_PIN_DC 19 //WLEDMM: might conflict with relay on wemos_shield
   #endif
   #ifndef FLD_PIN_RESET
-    #define FLD_PIN_RESET 26
+    #define FLD_PIN_RESET 26 
   #endif
 #else
   #ifndef FLD_PIN_DC
@@ -114,6 +115,7 @@ class FourLineDisplayUsermod : public Usermod {
     int8_t ioPin[5] = {FLD_PIN_SCL, FLD_PIN_SDA, -1, -1, -1};        // I2C pins: SCL, SDA
     uint32_t ioFrequency = 400000;  // in Hz (minimum is 100000, baseline is 400000 and maximum should be 3400000)
     #else
+    //WLEDMM check for esp32 needed? FLD_PIN_CLOCKSPI and FLD_PIN_DATASPI taken from spi_sclk and spi_mosi but later from local clk and dta pins ...??? 
     int8_t ioPin[5] = {FLD_PIN_CLOCKSPI, FLD_PIN_DATASPI, FLD_PIN_CS, FLD_PIN_DC, FLD_PIN_RESET}; // SPI pins: CLK, MOSI, CS, DC, RST
     uint32_t ioFrequency = 1000000;  // in Hz (minimum is 500kHz, baseline is 1MHz and maximum should be 20MHz)
     #endif
@@ -312,8 +314,8 @@ class FourLineDisplayUsermod : public Usermod {
       bool isHW, isSPI = (type == SSD1306_SPI || type == SSD1306_SPI64);
       PinOwner po = PinOwner::UM_FourLineDisplay;
       if (isSPI) {
-        int8_t hw_sclk = spi_sclk<0 ? HW_PIN_CLOCKSPI : spi_sclk;
-        int8_t hw_mosi = spi_mosi<0 ? HW_PIN_DATASPI : spi_mosi;
+        int8_t hw_sclk = spi_sclk; //WLEDMM simplify i2C
+        int8_t hw_mosi = spi_mosi; //WLEDMM simplify i2C
         if (ioPin[0] < 0 || ioPin[1] < 0) {
           ioPin[0] = hw_sclk;
           ioPin[1] = hw_mosi;
@@ -329,8 +331,8 @@ class FourLineDisplayUsermod : public Usermod {
           return;
         }
       } else {
-        int8_t hw_scl = i2c_scl<0 ? HW_PIN_SCL : i2c_scl;
-        int8_t hw_sda = i2c_sda<0 ? HW_PIN_SDA : i2c_sda;
+        int8_t hw_scl = i2c_scl; //WLEDMM simplify i2C
+        int8_t hw_sda = i2c_sda; //WLEDMM simplify i2C
         if (ioPin[0] < 0 || ioPin[1] < 0) {
           ioPin[0] = hw_scl;
           ioPin[1] = hw_sda;
@@ -1070,11 +1072,11 @@ class FourLineDisplayUsermod : public Usermod {
       // determine if we are using global HW pins (data & clock)
       int8_t hw_dta, hw_clk;
       if ((type == SSD1306_SPI || type == SSD1306_SPI64)) {
-        hw_clk = spi_sclk<0 ? HW_PIN_CLOCKSPI : spi_sclk;
-        hw_dta = spi_mosi<0 ? HW_PIN_DATASPI : spi_mosi;
+        hw_clk = spi_sclk; //WLEDMM simplify i2C
+        hw_dta = spi_mosi; //WLEDMM simplify i2C
       } else {
-        hw_clk = i2c_scl<0 ? HW_PIN_SCL : i2c_scl;
-        hw_dta = i2c_sda<0 ? HW_PIN_SDA : i2c_sda;
+        hw_clk = i2c_scl; //WLEDMM simplify i2C
+        hw_dta = i2c_sda; //WLEDMM simplify i2C
       }
 
       JsonObject top   = root.createNestedObject(FPSTR(_name));
@@ -1156,13 +1158,13 @@ class FourLineDisplayUsermod : public Usermod {
           bool isSPI = (type == SSD1306_SPI || type == SSD1306_SPI64);
           if (isSPI) {
             pinManager.deallocateMultiplePins((const uint8_t *)(&oldPin[2]), 3, po);
-            uint8_t hw_sclk = spi_sclk<0 ? HW_PIN_CLOCKSPI : spi_sclk;
-            uint8_t hw_mosi = spi_mosi<0 ? HW_PIN_DATASPI : spi_mosi;
+            uint8_t hw_sclk = spi_sclk; //WLEDMM simplify i2C
+            uint8_t hw_mosi = spi_mosi; //WLEDMM simplify i2C
             bool isHW = (oldPin[0]==hw_sclk && oldPin[1]==hw_mosi);
             if (isHW) po = PinOwner::HW_SPI;
           } else {
-            uint8_t hw_scl = i2c_scl<0 ? HW_PIN_SCL : i2c_scl;
-            uint8_t hw_sda = i2c_sda<0 ? HW_PIN_SDA : i2c_sda;
+            uint8_t hw_scl = i2c_scl; //WLEDMM simplify i2C
+            uint8_t hw_sda = i2c_sda; //WLEDMM simplify i2C
             bool isHW = (oldPin[0]==hw_scl && oldPin[1]==hw_sda);
             if (isHW) po = PinOwner::HW_I2C;
           }

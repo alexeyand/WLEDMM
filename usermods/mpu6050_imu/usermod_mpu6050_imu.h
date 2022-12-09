@@ -113,8 +113,8 @@ class MPU6050Driver : public Usermod {
     void setup() {
       DEBUG_PRINT_IMULN("mpu setup");
     // WLEDMM begin
-      int8_t hw_scl = i2c_scl<0 ? HW_PIN_SCL : i2c_scl;
-      int8_t hw_sda = i2c_sda<0 ? HW_PIN_SDA : i2c_sda;
+      int8_t hw_scl = i2c_scl; //WLEDMM simplify i2C
+      int8_t hw_sda = i2c_sda; //WLEDMM simplify i2C
 
       PinManagerPinType pins[2] = { { hw_scl, true }, { hw_sda, true } };
       if ((hw_scl < 0) || (hw_sda < 0)) {
@@ -132,7 +132,7 @@ class MPU6050Driver : public Usermod {
 
       // join I2C bus (I2Cdev library doesn't do this automatically)
       #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-          Wire.begin();        // WLEDMM fixme - this completely ignores any PINS
+          Wire.begin(i2c_sda, i2c_scl);        // WLEDMM fixme - this completely ignores any PINS - fixed!
           Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
       #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
           Fastwire::setup(400, true);

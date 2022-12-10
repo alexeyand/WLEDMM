@@ -519,9 +519,9 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("Could not allocate I2C pins."));
       uint8_t i2c[2] = { static_cast<uint8_t>(i2c_scl), static_cast<uint8_t>(i2c_sda) };
       pinManager.deallocateMultiplePins(i2c, 2, PinOwner::HW_I2C); // just in case deallocation of old pins
-      //WLEDMM simplify i2C
-      // i2c_sda = -1;
-      // i2c_scl = -1;
+      //WLEDMM all pins should be >=0 else reset to -1
+      i2c_sda = -1;
+      i2c_scl = -1;
     }
     int8_t hw_mosi_pin = !request->arg(F("MOSI")).length() ? -1 : (int)request->arg(F("MOSI")).toInt();
     int8_t hw_miso_pin = !request->arg(F("MISO")).length() ? -1 : (int)request->arg(F("MISO")).toInt();
@@ -534,7 +534,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     // if (hw_sclk_pin >= 0 && hw_sclk_pin != HW_PIN_CLOCKSPI) hw_sclk_pin = HW_PIN_CLOCKSPI;
     // #endif
     PinManagerPinType spi[3] = { { hw_mosi_pin, true }, { hw_miso_pin, true }, { hw_sclk_pin, true } };
-    if (hw_mosi_pin >= 0 && hw_sclk_pin >= 0 && pinManager.allocateMultiplePins(spi, 3, PinOwner::HW_SPI)) {
+    if (hw_mosi_pin >= 0 && hw_sclk_pin >= 0 && hw_miso_pin >=0 && pinManager.allocateMultiplePins(spi, 3, PinOwner::HW_SPI)) { //WLEDMM: add hw_miso_pin >=0
       spi_mosi = hw_mosi_pin;
       spi_miso = hw_miso_pin;
       spi_sclk = hw_sclk_pin;
@@ -550,10 +550,10 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("Could not allocate SPI pins."));
       uint8_t spi[3] = { static_cast<uint8_t>(spi_mosi), static_cast<uint8_t>(spi_miso), static_cast<uint8_t>(spi_sclk) };
       pinManager.deallocateMultiplePins(spi, 3, PinOwner::HW_SPI); // just in case deallocation of old pins
-      //WLEDMM simplify i2C
-      // spi_mosi = -1;
-      // spi_miso = -1;
-      // spi_sclk = -1;
+      //WLEDMM all pins should be >=0 else reset to -1
+      spi_mosi = -1;
+      spi_miso = -1;
+      spi_sclk = -1;
     }
 
     JsonObject um = doc.createNestedObject("um");

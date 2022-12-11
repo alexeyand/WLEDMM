@@ -469,7 +469,7 @@ bool PinManagerClass::WireBegin() {    // shortcut in case no parameters provide
 
 bool PinManagerClass::WireBegin(int8_t pinSDA, int8_t pinSCL) {
   // reject PIN = -1
-  if ((pinSDA < 0) || (pinSCL < 0) || (pinSDA == pinSCL)) {
+  if ((pinSDA < 0) || (pinSCL < 0) || (pinSDA == pinSCL) || (pinSDA >= WLED_NUM_PINS) ||  (pinSCL >= WLED_NUM_PINS)) {
     DEBUG_PRINT(F("PIN Manager: invalid GPIO for I2C: SDA="));
     DEBUG_PRINTF("%d, SCL=%d !\n",pinSDA, pinSCL);
     return(false);

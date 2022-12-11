@@ -281,6 +281,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   JsonArray hw_if_i2c = hw[F("if")][F("i2c-pin")];
   CJSON(i2c_sda, hw_if_i2c[0]);
   CJSON(i2c_scl, hw_if_i2c[1]);
+#if 0
   PinManagerPinType i2c[2] = { { i2c_sda, true }, { i2c_scl, true } };
   if (i2c_scl >= 0 && i2c_sda >= 0 && pinManager.allocateMultiplePins(i2c, 2, PinOwner::HW_I2C)) {
     // WLEDMM moved into pinManager
@@ -294,6 +295,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   //   i2c_sda = -1;
   //   i2c_scl = -1;
   // }
+#endif
   JsonArray hw_if_spi = hw[F("if")][F("spi-pin")];
   CJSON(spi_mosi, hw_if_spi[0]);
   CJSON(spi_sclk, hw_if_spi[1]);

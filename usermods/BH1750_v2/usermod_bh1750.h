@@ -81,15 +81,15 @@ private:
   // set up Home Assistant discovery entries
   void _mqttInitialize()
   {
-    mqttLuminanceTopic = String(mqttDeviceTopic) + F("/brightness");
+    mqttLuminanceTopic = String(mqttDeviceTopic) + "/brightness";   // WLEDMM bugfix for compiling in ESP-IDF V4.4.x
 
-    if (HomeAssistantDiscovery) _createMqttSensor(F("Brightness"), mqttLuminanceTopic, F("Illuminance"), F(" lx"));
+    if (HomeAssistantDiscovery) _createMqttSensor("Brightness", mqttLuminanceTopic, "Illuminance", " lx");   // WLEDMM bugfix for compiling in ESP-IDF V4.4.x
   }
 
   // Create an MQTT Sensor for Home Assistant Discovery purposes, this includes a pointer to the topic that is published to in the Loop.
   void _createMqttSensor(const String &name, const String &topic, const String &deviceClass, const String &unitOfMeasurement)
   {
-    String t = String(F("homeassistant/sensor/")) + mqttClientID + F("/") + name + F("/config");
+    String t = String("homeassistant/sensor/") + mqttClientID + "/" + name + "/config";   // WLEDMM bugfix for compiling in ESP-IDF V4.4.x
     
     StaticJsonDocument<600> doc;
     
@@ -120,6 +120,8 @@ private:
 public:
   void setup()
   {
+    DEBUG_PRINTLN("BH1750 setup start.");
+#if 0
     //WLEDMM simplify i2C
     bool HW_Pins_Used = (ioPin[0]==i2c_scl && ioPin[1]==i2c_sda); // note whether architecture-based hardware SCL/SDA pins used
     PinOwner po = PinOwner::UM_BH1750; // defaults to being pinowner for SCL/SDA pins
@@ -128,9 +130,18 @@ public:
     if (!pinManager.allocateMultiplePins(pins, 2, po)) return;
     
     Wire.begin(ioPin[1], ioPin[0]);
+# endif
+
+    if (!pinManager.WireBegin(ioPin[1], ioPin[0])) { enabled = false; sensorFound = false; return; }
 
     sensorFound = lightMeter.begin();
     initDone = true;
+    if (sensorFound == false) { // WLEDMM bugfix
+      enabled = false;   
+      USER_PRINTLN("BH1750 sensor not found.");
+      return;
+    }
+    USER_PRINTLN("BH1750 setup successfull.");
   }
 
   void loop()
@@ -150,7 +161,8 @@ public:
 
     bool shouldUpdate = now - lastSend > maxReadingInterval;
 
-    float lux = lightMeter.readLightLevel();
+    float lux = 0.0f;
+    if (sensorFound) lux = lightMeter.readLightLevel();  // WLEDMM bugfix
     lastMeasurement = millis();
     getLuminanceComplete = true;
 
@@ -166,11 +178,11 @@ public:
             mqttInitialized = true;
           }
         mqtt->publish(mqttLuminanceTopic.c_str(), 0, true, String(lux).c_str());
-        DEBUG_PRINTLN(F("Brightness: ") + String(lux) + F("lx"));
+        DEBUG_PRINTLN("Brightness: " + String(lux) + "lx");  // WLEDMM bugfix for compiling in ESP-IDF V4.4.x
       }
       else
       {
-        DEBUG_PRINTLN(F("Missing MQTT connection. Not publishing data"));
+        if (sensorFound) DEBUG_PRINTLN(F("Missing MQTT connection. Not publishing data"));
       }
     }
   }
@@ -253,12 +265,15 @@ public:
       bool pinsChanged = false;
       for (byte i=0; i<2; i++) if (ioPin[i] != newPin[i]) { pinsChanged = true; break; } // check if any pins changed
       if (pinsChanged) { //if pins changed, deallocate old pins and allocate new ones
+#if 0
+        // WLEDMM: disabled, as changing I2C config requires reboot
         PinOwner po = PinOwner::UM_BH1750;
         //WLEDMM simplify i2C
         if (ioPin[0]==i2c_scl && ioPin[1]==i2c_sda) po = PinOwner::HW_I2C;  // allow multiple allocations of HW I2C bus pins
         pinManager.deallocateMultiplePins((const uint8_t *)ioPin, 2, po);  // deallocate pins
         for (byte i=0; i<2; i++) ioPin[i] = newPin[i];
         setup();
+#endif
       }
       // use "return !top["newestParameter"].isNull();" when updating Usermod with new features
       return !top[F("pin")].isNull();

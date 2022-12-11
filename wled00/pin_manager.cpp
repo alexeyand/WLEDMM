@@ -520,6 +520,11 @@ bool PinManagerClass::WireBegin(int8_t pinSDA, int8_t pinSCL) {
     USER_PRINTLN(F("PIN Manager: wire.begin successfull."));
   }
 
+#ifdef ARDUINO_ARCH_ESP32S3
+  Wire.setTimeOut(50);   // workaround for wire timeout bug on -S3
+  Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having wiring difficulties
+#endif
+
   wire0isStarted = true;
   wirePinSDA = pinSDA;
   wirePinSCL = pinSCL;

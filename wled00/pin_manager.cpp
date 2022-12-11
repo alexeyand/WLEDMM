@@ -1,5 +1,6 @@
+
+#include "wled.h" // for global I2C pins
 #include "pin_manager.h"
-#include "wled.h"
 
 #ifdef ARDUINO_ARCH_ESP32
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0)
@@ -443,6 +444,86 @@ bool PinManagerClass::isPinAllocated(byte gpio, PinOwner tag)
   byte by = gpio >> 3;
   byte bi = gpio - (by<<3);
   return bitRead(pinAlloc[by], bi);
+}
+
+//
+// WLEDMM: central handling of I2C startup (global Wire)
+//
+
+bool PinManagerClass::WireBegin() {    // shortcut in case no parameters provided
+  int8_t hw_i2c_sda = i2c_sda;
+  int8_t hw_i2c_scl = i2c_scl;
+
+  // workaround in case that global i2c_sda or i2c_scl are not configured yet
+#ifdef HW_PIN_SDA
+  if ((hw_i2c_sda < 0) || !isPinOk(hw_i2c_sda))
+    hw_i2c_sda = (HW_PIN_SDA >= 0) ? HW_PIN_SDA : SDA;  // SDA is always defined by the framework
+#endif
+#ifdef HW_PIN_SCL
+  if ((hw_i2c_scl < 0) || !isPinOk(hw_i2c_scl))
+    hw_i2c_scl = (HW_PIN_SCL >= 0) ? HW_PIN_SCL : SCL;  // SCL is always defined by the framework
+#endif
+
+  return WireBegin(hw_i2c_sda, hw_i2c_scl); 
+}
+
+bool PinManagerClass::WireBegin(int8_t pinSDA, int8_t pinSCL) {
+  // reject PIN = -1
+  if ((pinSDA < 0) || (pinSCL < 0) || (pinSDA == pinSCL)) {
+    DEBUG_PRINT(F("PIN Manager: invalid GPIO for I2C: SDA="));
+    DEBUG_PRINTF("%d, SCL=%d !\n",pinSDA, pinSCL);
+    return(false);
+  } 
+
+  // if wire already started, reject any other GPIO
+  if ((wire0isStarted == true) && 
+      (pinSDA != wirePinSDA) && (pinSDA != wirePinSCL) &&       // allow "swapped pins2, i.e. SDA <->SCL
+      (pinSCL != wirePinSCL) && (pinSCL != wirePinSDA)) {
+    DEBUG_PRINT(F("PIN Manager: invalid GPIO for I2C: SDA="));
+    DEBUG_PRINTF("%d, SCL=%d. Wire already started with sda=%d and scl=%d!\n",pinSDA, pinSCL, wirePinSDA, wirePinSCL);
+    return(false);
+  }
+
+  // make sure pins are allocated
+  PinManagerPinType pins[2] = {{pinSCL, true}, {pinSDA, true}};
+  if (!allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) {    // this will only FAIL when pins are invalid, or used already for other purposes
+    DEBUG_PRINT(F("PIN Manager: failed to allocate GPIO for I2C: SDA="));
+    DEBUG_PRINTF("%d, SCL=%d !\n",pinSDA, pinSCL);
+    return(false);
+  }
+
+  if(wire0isStarted == true) {
+    DEBUG_PRINTLN(F("PIN Manager: all good, I2C already started, nothing to do :-)"));
+    return(true);
+  }
+
+  // NOW do it - start Wire !!! fire ;-)
+  
+  bool wireIsOK = true;
+#ifdef ARDUINO_ARCH_ESP32         // ESP32 - i2c pins can be mapped to any GPIO
+  wireIsOK = Wire.setPins(pinSDA, pinSCL);   // this will fail if Wire is initialised already (i.e. Wire.begin() called prior)
+#else // 8266 - I2C pins are fixed
+  if((pinSDA != PIN_WIRE_SDA) || (pinSCL != PIN_WIRE_SCL)) {
+    DEBUG_PRINT(F("PIN Manager: warning ESP8266 I2C pins are fixed. please use SDA="));
+    DEBUG_PRINTF("%d, SCL=%d !\n",PIN_WIRE_SDA, PIN_WIRE_SCL);
+  }
+#endif
+  if (wireIsOK == false) {
+    USER_PRINTLN(F("PIN Manager: warning - wire.setPins failed!"));
+  }
+
+  wireIsOK = Wire.begin();  // this will fail if wire is already running
+
+  if (wireIsOK == false) {
+    USER_PRINTLN(F("PIN Manager: warning - wire.begin failed!"));
+  } else {
+    USER_PRINTLN(F("PIN Manager: wire.begin successfull."));
+  }
+
+  wire0isStarted = true;
+  wirePinSDA = pinSDA;
+  wirePinSCL = pinSCL;
+  return(true);
 }
 
 /* see https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-reference/peripherals/gpio.html

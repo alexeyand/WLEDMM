@@ -3,7 +3,7 @@
 /*
  * Registers pins so there is no attempt for two interfaces to use the same pin
  */
-#include <Arduino.h>
+#include <Arduino.h> // to get Wire and Wire1
 #include "const.h" // for USERMOD_* values
 
 typedef struct PinManagerPinType {
@@ -81,6 +81,11 @@ class PinManagerClass {
     uint8_t i2cAllocCount : 4; // allow multiple allocation of I2C bus pins but keep track of allocations
     uint8_t spiAllocCount : 4; // allow multiple allocation of SPI bus pins but keep track of allocations
   };
+  
+  // WLEDMM: central handling of Wire (only for first bus)
+  bool wire0isStarted = false;  // true is wire.begin() was done already
+  int8_t wirePinSDA = -1;       // GPIO currently in use for SDA 
+  int8_t wirePinSCL = -1;       // GPIO currently in use for SCL 
 
   public:
   PinManagerClass() : i2cAllocCount(0), spiAllocCount(0) {}
@@ -106,6 +111,12 @@ class PinManagerClass {
   [[deprecated("Replaced by two-parameter deallocatePin(gpio, ownerTag), for improved debugging")]]
   #endif
   inline void deallocatePin(byte gpio) { deallocatePin(gpio, PinOwner::None); }
+
+  // WLEDMM: central initialization of Wire  (Wire1 not supported yet)
+  // toDo: allow pointer to Wireobject as third parameter to WireBegin
+  bool WireBegin();                                          // shortcut - use global pins when no parameters provided
+  bool WireBegin(int8_t pinSDA, int8_t pinSCL);              // use this instead of Wire.begin(SDA, SCL)
+  // toDo: may need to add calls for Wire.setClock, Wire.setPins Wire.end 
 
   // will return true for reserved pins
   bool isPinAllocated(byte gpio, PinOwner tag = PinOwner::None);

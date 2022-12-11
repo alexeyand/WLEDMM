@@ -510,10 +510,11 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     if (hw_sda_pin >= 0 && hw_scl_pin >= 0 && pinManager.allocateMultiplePins(i2c, 2, PinOwner::HW_I2C)) {
       i2c_sda = hw_sda_pin;
       i2c_scl = hw_scl_pin;
-      #ifdef ESP32
-      Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called)
-      #endif
-      Wire.begin();
+      // WLEDMM moved into pinmanager
+      //#ifdef ESP32
+      //Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called)
+      //#endif
+      //Wire.begin();
     } else {
       // there is no Wire.end()
       DEBUG_PRINTLN(F("Could not allocate I2C pins."));

@@ -123,16 +123,21 @@ class MPU6050Driver : public Usermod {
         //return;
       }
 
-      if (!pinManager.allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) { 
-        enabled = false;
-        USER_PRINTF("mpu6050: failed to allocate I2C sda=%d scl=%d\n", hw_sda, hw_scl);
-        return;
-      }
+      //if (!pinManager.allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) { 
+      //  enabled = false;
+      //  USER_PRINTF("mpu6050: failed to allocate I2C sda=%d scl=%d\n", hw_sda, hw_scl);
+      //  return;
+      //}
     // WLEDMM end
 
       // join I2C bus (I2Cdev library doesn't do this automatically)
       #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-          Wire.begin(i2c_sda, i2c_scl);        // WLEDMM fixme - this completely ignores any PINS - fixed!
+          if (!pinManager.WireBegin(hw_sda, hw_scl)) {
+            enabled = false;
+            USER_PRINTF("mpu6050: failed to start I2C with sda=%d scl=%d\n", hw_sda, hw_scl);
+            return;
+          }
+
           Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
       #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
           Fastwire::setup(400, true);

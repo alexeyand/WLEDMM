@@ -342,12 +342,14 @@ class FourLineDisplayUsermod : public Usermod {
         }
         isHW = (ioPin[0]==hw_scl && ioPin[1]==hw_sda);
         // isHW = true;
-        if (isHW) po = PinOwner::HW_I2C;  // allow multiple allocations of HW I2C bus pins
-        PinManagerPinType pins[2] = { {ioPin[0], true }, { ioPin[1], true } };
-        if (ioPin[0] < 0 || ioPin[1] < 0)  { typeOK = false; strcpy(errorMessage, PSTR("No Pins defined")); return; }  //WLEDMM bugfix - ensure that "final" GPIO are valid
-        if (!pinManager.allocateMultiplePins(pins, 2, po)) { typeOK = false; strcpy(errorMessage, PSTR("Alloc pins failed")); return; }
+        if (isHW) {
+          //po = PinOwner::HW_I2C;  // allow multiple allocations of HW I2C bus pins
+          //PinManagerPinType pins[2] = { {ioPin[0], true }, { ioPin[1], true } };
+          //if (ioPin[0] < 0 || ioPin[1] < 0) { typeOK = false; strcpy(errorMessage, PSTR("No Pins defined")); return; }  //WLEDMM bugfix - ensure that "final" GPIO are valid
+          //if (!pinManager.allocateMultiplePins(pins, 2, po)) { typeOK = false; strcpy(errorMessage, PSTR("Alloc pins failed")); return; }
+          if (!pinManager.WireBegin(ioPin[1], ioPin[0])) { typeOK = false; strcpy(errorMessage, PSTR("I2C startup failed")); return; }
+        }
       }
-
       DEBUG_PRINTLN(F("Allocating display."));
 /*
 // At some point it may be good to not new/delete U8X8 object but use this instead

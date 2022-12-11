@@ -12,8 +12,10 @@ class RTCUsermod : public Usermod {
   public:
 
     void setup() {
-      PinManagerPinType pins[2] = { { i2c_scl, true }, { i2c_sda, true } };
-      if (!pinManager.allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) { disabled = true; return; }
+      //PinManagerPinType pins[2] = { { i2c_scl, true }, { i2c_sda, true } };
+      //if (!pinManager.allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) { disabled = true; return; }
+      if (!pinManager.WireBegin(i2c_sda, i2c_scl)) { disabled = true; return; }
+      
       RTC.begin();
       time_t rtcTime = RTC.get();
       if (rtcTime) {

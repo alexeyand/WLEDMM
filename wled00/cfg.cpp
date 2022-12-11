@@ -283,10 +283,11 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   CJSON(i2c_scl, hw_if_i2c[1]);
   PinManagerPinType i2c[2] = { { i2c_sda, true }, { i2c_scl, true } };
   if (i2c_scl >= 0 && i2c_sda >= 0 && pinManager.allocateMultiplePins(i2c, 2, PinOwner::HW_I2C)) {
-    #ifdef ESP32
-    Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called prior)
-    #endif
-    Wire.begin();
+    // WLEDMM moved into pinManager
+    //#ifdef ESP32
+    //Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called prior)
+    //#endif
+    //Wire.begin();
   }
   //WLEDMM simplify i2C
   // } else {

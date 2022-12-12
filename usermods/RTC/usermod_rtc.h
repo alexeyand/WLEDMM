@@ -12,6 +12,7 @@ class RTCUsermod : public Usermod {
   public:
 
     void setup() {
+      if (disabled) return;   // WLEDMM make sure that I2C is only initialized when neeeded
       //PinManagerPinType pins[2] = { { i2c_scl, true }, { i2c_sda, true } };
       //if (!pinManager.allocateMultiplePins(pins, 2, PinOwner::HW_I2C)) { disabled = true; return; }
       DEBUG_PRINTLN("RTC startup");
@@ -26,8 +27,8 @@ class RTCUsermod : public Usermod {
         if (!RTC.chipPresent()) disabled = true; //don't waste time if H/W error
       }
       
-      if (disabled == true) USER_PRINTLN("RTC usermod disabled (no chip?).");
-      else USER_PRINTLN("RTC startup complete.");
+      if (disabled == true) { USER_PRINTLN("RTC usermod disabled (no chip?).");
+      } else { USER_PRINTLN("RTC startup complete."); }
     }
 
     void loop() {

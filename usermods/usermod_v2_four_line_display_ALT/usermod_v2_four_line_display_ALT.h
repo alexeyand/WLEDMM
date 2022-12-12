@@ -132,7 +132,11 @@ class FourLineDisplayUsermod : public Usermod {
     bool sleepMode = true;          // allow screen sleep?
     bool clockMode = false;         // display clock
     bool showSeconds = true;        // display clock with seconds
+#if defined(ARDUINO_ARCH_ESP32) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)
+    bool enabled = false;           // WLEDMM - workaround for I2C driver bug (too long timeout if device is not connected)
+#else
     bool enabled = true;
+#endif
     bool contrastFix = false;
 
     // Next variables hold the previous known values to determine if redraw is
@@ -312,7 +316,7 @@ class FourLineDisplayUsermod : public Usermod {
     // gets called once at boot. Do all initialization that doesn't depend on
     // network here
     void setup() {
-      if (!typeOK || !enabled) return;
+      if (!typeOK || !enabled) {initDone = false; return;}    // WLEDMM make sure that I2C is only initialized when neeeded
 
       bool isHW, isSPI = (type == SSD1306_SPI || type == SSD1306_SPI64);
       PinOwner po = PinOwner::UM_FourLineDisplay;
@@ -479,7 +483,7 @@ class FourLineDisplayUsermod : public Usermod {
       bool needRedraw = false;
       unsigned long now = millis();
  
-      if (!typeOK || !enabled) return;
+      if (!typeOK || !enabled || !initDone) return;
       if (overlayUntil > 0) {
         if (now >= overlayUntil) {
           // Time to display the overlay has elapsed.

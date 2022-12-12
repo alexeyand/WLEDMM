@@ -111,6 +111,7 @@ class MPU6050Driver : public Usermod {
     #endif
 
     void setup() {
+      if (!enabled) {dmpReady=false; return;}   // WLEDMM make sure that I2C is only initialized when neeeded
       DEBUG_PRINT_IMULN("mpu setup");
     // WLEDMM begin
       int8_t hw_scl = i2c_scl; //WLEDMM simplify i2C

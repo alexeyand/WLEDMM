@@ -120,6 +120,7 @@ private:
 public:
   void setup()
   {
+    if (!enabled) { initDone = false; sensorFound = false; return;}    // WLEDMM make sure that I2C is only initialized when neeeded
     DEBUG_PRINTLN("BH1750 setup start.");
 #if 0
     //WLEDMM simplify i2C
@@ -265,7 +266,6 @@ public:
       bool pinsChanged = false;
       for (byte i=0; i<2; i++) if (ioPin[i] != newPin[i]) { pinsChanged = true; break; } // check if any pins changed
       if (pinsChanged) { //if pins changed, deallocate old pins and allocate new ones
-#if 0
         // WLEDMM: disabled, as changing I2C config requires reboot
         PinOwner po = PinOwner::UM_BH1750;
         //WLEDMM simplify i2C
@@ -273,7 +273,6 @@ public:
         pinManager.deallocateMultiplePins((const uint8_t *)ioPin, 2, po);  // deallocate pins
         for (byte i=0; i<2; i++) ioPin[i] = newPin[i];
         setup();
-#endif
       }
       // use "return !top["newestParameter"].isNull();" when updating Usermod with new features
       return !top[F("pin")].isNull();

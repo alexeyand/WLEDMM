@@ -2,9 +2,9 @@
 
 First, thanks to the authors of the ssd11306_i2c_oled_u8g2 mod.
 
-This usermod provides a four line display using either
+Provides a four line display using either
 128x32 or 128x64 OLED displays.
-It's can operate independently, but starts to provide
+It can operate independently, but starts to provide
 a relatively complete on-device UI when paired with the 
 Rotary Encoder UI usermod. I strongly encourage you to use 
 them together.
@@ -23,7 +23,7 @@ This file should be placed in the same directory as `platformio.ini`.
 * `FLD_PIN_SCL`                - The display SCL pin, defaults to 5 WLEDMM: 5 for esp8266, 22 for esp32...
 * `FLD_PIN_SDA`                - The display SDA pin, defaults to 4 WLEDMM: 4 for esp8266, 21 for esp32...
 
-All of the parameters can be configured using Usermods settings page, inluding GPIO pins.
+All of the parameters can be configured via the Usermods settings page, inluding GPIO pins.
 
 ### PlatformIO requirements
 
@@ -44,7 +44,7 @@ UI usermod folder for how to include these using `platformio_override.ini`.
     * 6 = SPI SSD1306 128x32
     * 7 = SPI SSD1306 128x64 (4 double-height lines)
 * `contrast` - set display contrast (higher contrast may reduce display lifetime)
-* `refreshRateSec` - time in seconds for display refresh
+* `refreshRateSec` - display refresh time in seconds
 * `screenTimeOutSec` - screen saver time-out in seconds
 * `flip` - flip/rotate display 180°
 * `sleepMode` - enable/disable screen saver

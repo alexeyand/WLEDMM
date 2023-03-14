@@ -514,7 +514,8 @@ public:
     // 6: fx changed 7: hue 8: preset cycle 9: blynk 10: alexa
     //setValuesFromFirstSelectedSeg(); //to make transition work on main segment (should no longer be required)
     stateUpdated(CALL_MODE_BUTTON);
-    updateInterfaces(CALL_MODE_BUTTON);
+    if ((millis() - lastInterfaceUpdate) > INTERFACE_UPDATE_COOLDOWN)   // WLEDMM respect cooldown times, to avoid crash in AsyncWebSocketMessageBuffer
+      updateInterfaces(CALL_MODE_BUTTON);
   }
 
   void changeBrightness(bool increase) {
@@ -526,7 +527,10 @@ public:
     }
     display->updateRedrawTime();
   #endif
-    bri = max(min((increase ? bri+fadeAmount : bri-fadeAmount), 255), 0);
+    byte lastBri = bri;
+    if (bri < 40) bri = max(min((increase ? bri+fadeAmount/2 : bri-fadeAmount/2), 255), 0);    // WLEDMM slower steps when brightness < 16%
+    else bri = max(min((increase ? bri+fadeAmount : bri-fadeAmount), 255), 0);
+    if (lastBri != bri) stateChanged = true;                                                   // WLEDMM bugfix
     lampUdated();
   #ifdef USERMOD_FOUR_LINE_DISPLAY
     if (display->canDraw())   // only draw if nothing else is drawing

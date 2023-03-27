@@ -1,4 +1,4 @@
-function peek(c) {
+function peek(c, setOff=false) {
 	// Check for canvas support
 	var ctx = c.getContext('2d');
 	if (ctx) { // Access the rendering context
@@ -16,16 +16,17 @@ function peek(c) {
 			}
 		}
 		ws.binaryType = "arraybuffer";
-		ws.addEventListener('message',(e)=>{
+
+		function processWSData(e) {
 			try {
 				if (toString.call(e.data) === '[object ArrayBuffer]') {
 					let leds = new Uint8Array(e.data);
 					if (leds[0] != 76 || leds[1] != 2 || !ctx) return; //'L', set in ws.cpp
 					let mW = leds[2]; // matrix width
 					let mH = leds[3]; // matrix height
-					let pPL = Math.min(c.width / mW, (c.height-10) / mH); // pixels per LED (width of circle) WLEDMM -10 for prompts
+					let pPL = Math.min(c.width / mW, c.height / mH); // pixels per LED (width of circle)
 					let lOf = Math.floor((c.width - pPL*mW)/2); //left offeset (to center matrix)
-					var i = 6;
+					var i = 4; //same offset as in ws.cpp
 					ctx.clearRect(0, 0, c.width, c.height); //WLEDMM
 					function colorAmp(color) {
 						if (color == 0) return 0;
@@ -38,14 +39,15 @@ function peek(c) {
 						ctx.fill();
 						i+=3;
 					}
-					//WLEDMM show preset and playlist id
-					ctx.fillStyle = `rgb(255,255,255)`;
-					if (leds[4] != 0) ctx.fillText("preset " + leds[4].toString(), lOf, mH*pPL+10);
-					if (leds[5] != 255) ctx.fillText("playlist " + leds[5].toString(), lOf + 70, mH*pPL+10);
 				}
 			} catch (err) {
 				console.error("Peek WS error:",err);
 			} 
-		});
+		}
+		
+		if (!setOff)
+			ws.addEventListener('message', processWSData);
+		else
+			ws.removeEventListener('message', processWSData);
 	}
 }

@@ -367,6 +367,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   int tdd = light_tr["dur"] | -1;
   if (tdd >= 0) transitionDelay = transitionDelayDefault = tdd * 100;
   CJSON(strip.paletteFade, light_tr["pal"]);
+  CJSON(randomPaletteChangeTime, light_tr[F("rpc")]);
 
   JsonObject light_nl = light["nl"];
   CJSON(nightlightMode, light_nl["mode"]);
@@ -484,6 +485,8 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     CJSON(netDebugPrintIP[i], if_ndb_ip[i]);
   CJSON(netDebugPrintPort, if_ndb["port"]);
   CJSON(netDebugEnabled, if_ndb["enabled"]);
+  // USER_PRINTF("deserializeConfig %d\n", netDebugEnabled);
+  pinManager.manageDebugTXPin();
 #endif
 
   JsonObject if_ntp = interfaces[F("ntp")];
@@ -846,6 +849,7 @@ void serializeConfig() {
   light_tr["mode"] = fadeTransition;
   light_tr["dur"] = transitionDelayDefault / 100;
   light_tr["pal"] = strip.paletteFade;
+  light_tr[F("rpc")] = randomPaletteChangeTime;
 
   JsonObject light_nl = light.createNestedObject("nl");
   light_nl["mode"] = nightlightMode;
@@ -953,6 +957,7 @@ void serializeConfig() {
   }
   if_ndb["port"] = netDebugPrintPort;
   if_ndb["enabled"] = netDebugEnabled;
+  // USER_PRINTF("serializeConfig %d\n", netDebugEnabled);
 #endif
 
   JsonObject if_ntp = interfaces.createNestedObject("ntp");

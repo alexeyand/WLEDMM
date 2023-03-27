@@ -218,7 +218,11 @@ void appendGPIOinfo() {
   #endif
 
   #ifdef WLED_DEBUG
-  oappend(SET_F(",")); oappend(itoa(hardwareTX,nS,10));// debug output (TX) pin
+    #if defined(WLED_DEBUG_HOST)
+      if (!netDebugEnabled) oappend(SET_F(",")); oappend(itoa(hardwareTX,nS,10));// debug output (TX) pin
+    #else
+      oappend(SET_F(",")); oappend(itoa(hardwareTX,nS,10));// debug output (TX) pin
+    #endif
   #endif
 
   //Note: Using pin 3 (RX) disables Adalight / Serial JSON
@@ -462,6 +466,7 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
     sappend('c',SET_F("TF"),fadeTransition);
     sappend('v',SET_F("TD"),transitionDelayDefault);
     sappend('c',SET_F("PF"),strip.paletteFade);
+    sappend('v',SET_F("TP"),randomPaletteChangeTime);
     sappend('v',SET_F("BF"),briMultiplier);
     sappend('v',SET_F("TB"),nightlightTargetBri);
     sappend('v',SET_F("TL"),nightlightDelayMinsDefault);
@@ -603,6 +608,9 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
 
 #ifdef WLED_ENABLE_LOXONE
     oappend(SET_F("hideNoLOX();"));  // WLEDMM hide "not compiled in" message    
+#endif
+#ifdef WLED_ENABLE_ADALIGHT
+    oappend(SET_F("hideNoADA();"));  // WLEDMM hide "not compiled in" message    
 #endif
 
   }

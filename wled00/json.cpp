@@ -46,7 +46,7 @@
  * JSON API (De)serialization
  */
 
-void deserializeSegment(JsonObject elem, byte it, byte presetId)
+bool deserializeSegment(JsonObject elem, byte it, byte presetId)
 {
   //WLEDMM add USER_PRINT
   if (elem.size()!=1 || elem["stop"] != 0) { // not for {"stop":0}
@@ -56,7 +56,7 @@ void deserializeSegment(JsonObject elem, byte it, byte presetId)
   }
 
   byte id = elem["id"] | it;
-  if (id >= strip.getMaxSegments()) return;
+  if (id >= strip.getMaxSegments()) return false;
 
   //WLEDMM: add compatibility for SR presets
   #ifndef WLED_DISABLE_2D
@@ -80,7 +80,7 @@ void deserializeSegment(JsonObject elem, byte it, byte presetId)
 
   // if using vectors use this code to append segment
   if (id >= strip.getSegmentsNum()) {
-    if (stop <= 0) return; // ignore empty/inactive segments
+    if (stop <= 0) return false; // ignore empty/inactive segments
     strip.appendSegment(Segment(0, strip.getLengthTotal()));
     id = strip.getSegmentsNum()-1; // segments are added at the end of list
   }
@@ -113,7 +113,7 @@ void deserializeSegment(JsonObject elem, byte it, byte presetId)
       elem["rev"]   = !elem["rev"]; // alternate reverse on even/odd segments
       deserializeSegment(elem, i, presetId); // recursive call with new id
     }
-    return;
+    return true;
   }
 
   if (elem["n"]) {
@@ -169,6 +169,8 @@ void deserializeSegment(JsonObject elem, byte it, byte presetId)
   }
   if (stop > start && of > len -1) of = len -1;
   seg.set(start, stop, grp, spc, of, startY, stopY);
+
+  if (seg.reset && seg.stop == 0) return true; // segment was deleted & is marked for reset, no need to change anything else
 
   byte segbri = seg.opacity;
   if (getVal(elem["bri"], &segbri)) {
@@ -331,6 +333,8 @@ void deserializeSegment(JsonObject elem, byte it, byte presetId)
   }
   // send UDP/WS if segment options changed (except selection; will also deselect current preset)
   if (seg.differs(prev) & 0x7F) stateChanged = true;
+
+  return true;
 }
 
 // deserializes WLED state (fileDoc points to doc object if called from web server)
@@ -344,11 +348,15 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
 
   bool stateResponse = root[F("v")] | false;
 
-  //WLEDMM: store netDebug 
+  //WLEDMM: store netDebug, also if not WLED_DEBUG 
   #if defined(WLED_DEBUG_HOST)
   bool oldValue = netDebugEnabled;
   netDebugEnabled = root[F("netDebug")] | netDebugEnabled;
-  if (oldValue != netDebugEnabled) doSerializeConfig = true; //WLEDMM to make it will be stored in cfg.json! (tbd: check if this is the right approach)
+  // USER_PRINTF("deserializeState %d (%d)\n", netDebugEnabled, oldValue);
+  if (oldValue != netDebugEnabled) {
+    pinManager.manageDebugTXPin();
+    doSerializeConfig = true; //WLEDMM to make it will be stored in cfg.json! (tbd: check if this is the right approach)
+  }
   #endif
 
   bool onBefore = bri;
@@ -454,11 +462,12 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
       deserializeSegment(segVar, id, presetId); //apply only the segment with the specified ID
     }
   } else {
+    size_t deleted = 0;
     JsonArray segs = segVar.as<JsonArray>();
     for (JsonObject elem : segs) {
-      deserializeSegment(elem, it, presetId);
-      it++;
+      if (deserializeSegment(elem, it++, presetId) && !elem["stop"].isNull() && elem["stop"]==0) deleted++;
     }
+    if (strip.getSegmentsNum() > 3 && deleted >= strip.getSegmentsNum()/2U) strip.purgeSegments(); // batch deleting more than half segments
   }
 
   usermods.readFromJsonState(root);
@@ -515,7 +524,7 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
 
 void serializeSegment(JsonObject& root, Segment& seg, byte id, bool forPreset, bool segmentBounds)
 {
-  //WLEDMM add USER_PRINT
+  //WLEDMM add DEBUG_PRINT (not USER_PRINT)
   String temp;
   serializeJson(root, temp);
   DEBUG_PRINTF("serializeSegment %s\n", temp.c_str());
@@ -585,15 +594,10 @@ void serializeSegment(JsonObject& root, Segment& seg, byte id, bool forPreset, b
 
 void serializeState(JsonObject root, bool forPreset, bool includeBri, bool segmentBounds, bool selectedSegmentsOnly)
 {
-  //WLEDMM add USER_PRINT
+  //WLEDMM add DEBUG_PRINT (not USER_PRINT)
   String temp;
   serializeJson(root, temp);
-  DEBUG_PRINTF("serializeState %s\n", temp.c_str());
-
-  //WLEDMM: store netDebug 
-  #if defined(WLED_DEBUG_HOST)
-    root[F("netDebug")] = netDebugEnabled;
-  #endif
+  DEBUG_PRINTF("serializeState %d %s\n", forPreset, temp.c_str());
 
   if (includeBri) {
     root["on"] = (bri > 0);
@@ -602,6 +606,12 @@ void serializeState(JsonObject root, bool forPreset, bool includeBri, bool segme
   }
 
   if (!forPreset) {
+    //WLEDMM: store netDebug 
+    #if defined(WLED_DEBUG_HOST)
+      root[F("netDebug")] = netDebugEnabled;
+    // USER_PRINTF("serializeState %d\n", netDebugEnabled);
+    #endif
+
     if (errorFlag) {root[F("error")] = errorFlag; errorFlag = ERR_NONE;} //prevent error message to persist on screen
 
     root["ps"] = (currentPreset > 0) ? currentPreset : -1;
@@ -887,6 +897,7 @@ void serializeInfo(JsonObject root)
   #endif
   root[F("lwip")] = 0; //deprecated
   root[F("totalheap")] = ESP.getHeapSize(); //WLEDMM
+  root[F("getflash")] = ESP.getFlashChipSize(); //WLEDMM and Athom
   #else
   root[F("arch")] = "esp8266";
   root[F("core")] = ESP.getCoreVersion();
@@ -961,6 +972,12 @@ void serializeInfo(JsonObject root)
     default: root[F("e32flashtext")] = F(" (other)"); break;
   }
   #endif
+  #if defined(WLED_DEBUG) || defined(WLED_DEBUG_HOST) || defined(SR_DEBUG) || defined(SR_STATS)
+  // WLEDMM add status of Serial, incuding pin alloc
+  root[F("serialOnline")] = Serial ? (canUseSerial()?F("Serial ready"):F("Serial in use")) : F("Serial disconected");  // "Disconnected" may happen on boards with USB CDC
+  root[F("sRX")] = pinManager.isPinAllocated(hardwareRX) ? pinManager.getPinOwnerText(hardwareRX): F("free");
+  root[F("sTX")] = pinManager.isPinAllocated(hardwareTX) ? pinManager.getPinOwnerText(hardwareTX): F("free");
+  #endif
   // end WLEDMM
 
   root[F("uptime")] = millis()/1000 + rolloverMillis*4294967;
@@ -973,7 +990,7 @@ void serializeInfo(JsonObject root)
   #endif
   //WLEDMM: WLED_DEBUG_HOST independent from WLED_DEBUG
   #ifdef WLED_DEBUG_HOST
-  os  = 0x80; //WLEDMM: also if not WLED_DEBUG (on off button Net Debug)
+  os  = 0x80; //WLEDMM: also if not WLED_DEBUG (on off button Net Debug/Net Print)
   os |= 0x0100;
   if (!netDebugEnabled) os &= ~0x0080;
   #endif

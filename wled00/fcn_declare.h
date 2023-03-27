@@ -114,6 +114,7 @@ void decodeIR21(uint32_t code);
 void decodeIR6(uint32_t code);
 void decodeIR9(uint32_t code);
 void decodeIRJson(uint32_t code);
+void decodeIR24MC(uint32_t code); //WLEDMM
 
 void initIR();
 void handleIR();
@@ -124,7 +125,7 @@ void handleIR();
 #include "src/dependencies/json/AsyncJson-v6.h"
 #include "FX.h"
 
-void deserializeSegment(JsonObject elem, byte it, byte presetId = 0);
+bool deserializeSegment(JsonObject elem, byte it, byte presetId = 0);
 bool deserializeState(JsonObject root, byte callMode = CALL_MODE_DIRECT_CHANGE, byte presetId = 0);
 void serializeSegment(JsonObject& root, Segment& seg, byte id, bool forPreset = false, bool segmentBounds = true);
 void serializeState(JsonObject root, bool forPreset = false, bool includeBri = true, bool segmentBounds = true, bool selectedSegmentsOnly = false);

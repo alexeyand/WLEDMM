@@ -5,7 +5,7 @@
  * Readability defines and their associated numerical values + compile-time constants
  */
 
-#define GRADIENT_PALETTE_COUNT 61 //WLEDMM netmindz ar palette +2, ewowi second Random Cycle palette +1
+#define GRADIENT_PALETTE_COUNT 61 //WLEDMM netmindz ar palette +2, ewowi Random Smooth palette +1
 
 //Defaults
 #define DEFAULT_CLIENT_SSID "Your_Network"
@@ -363,11 +363,11 @@
 #define MAX_LEDS_PER_BUS 2048   // may not be enough for fast LEDs (i.e. APA102)
 #endif
 
-// string temp buffer (now stored in stack locally)
+// string temp buffer (now stored in stack locally) // WLEDMM ...which is actually not the greatest design choice on ESP32
 #ifdef ESP8266
 #define SETTINGS_STACK_BUF_SIZE 2048
 #else
-#define SETTINGS_STACK_BUF_SIZE 3096
+#define SETTINGS_STACK_BUF_SIZE 3712   // WLEDMM added 512 bytes of margin (was 3096)
 #endif
 
 #ifdef WLED_USE_ETHERNET
@@ -408,8 +408,8 @@
   #define JSON_BUFFER_SIZE 24576
 #endif
 
-//#define MIN_HEAP_SIZE (MAX_LED_MEMORY+2048)
-#define MIN_HEAP_SIZE (8192)
+//#define MIN_HEAP_SIZE (8k for AsyncWebServer)
+#define MIN_HEAP_SIZE 8192
 
 // Maximum size of node map (list of other WLED instances)
 #ifdef ESP8266

@@ -1,6 +1,6 @@
 //page js
 var loc = false, locip;
-var isOn = false, nlA = false, isLv = true, isInfo = false, isNodes = false, syncSend = false, syncTglRecv = true;
+var isOn = false, nlA = false, isLv = false, isInfo = false, isNodes = false, syncSend = false, syncTglRecv = true;
 var hasWhite = false, hasRGB = false, hasCCT = false;
 var nlDur = 60, nlTar = 0;
 var nlMode = false;
@@ -269,8 +269,6 @@ function onLoad()
 		sl.addEventListener('touchstart', toggleBubble);
 		sl.addEventListener('touchend', toggleBubble);
 	}
-
-	gId('buttonSr').className = "active"; //WLEDMM: on after load
 }
 
 function updateTablinks(tabI)
@@ -613,7 +611,9 @@ function parseInfo(i) {
 	mw = i.leds.matrix ? i.leds.matrix.w : 0;
 	mh = i.leds.matrix ? i.leds.matrix.h : 0;
 	isM = mw>0 && mh>0;
-	if (!isM) {
+	if (isM) {
+		gId('buttonSr').className = "active"; isLv = true; //WLEDMM: on after load
+	} else {
 		gId("filter1D").classList.add('hide');
 		//gId("filter2D").classList.add('hide');
 		hideModes("2D");
@@ -1937,40 +1937,30 @@ function toggleSync()
 function toggleLiveview()
 {
 	if (isM) {
+		//WLEDMM adding liveview2D support on main ui
 		isLv = !isLv;
 		gId("colorGFX").style.display = isLv? "inline":"none";
 		gId("effectGFX").style.display = isLv? "inline":"none";
 		gId("segGFX").style.display = isLv? "inline":"none";
 
 		canvasPeek = gId("canvasPeek");
-		peek(canvasPeek, !isLv); //set off if !isLv
-
-		gId('buttonSr').className = (isLv) ? "active":"";
-
+		if (isLv) peek(canvasPeek); //W
 	} else {
-		//WLEDMM adding liveview2D support
+		//WLEDMM remove liveview2D support here
 		if (isInfo && isM) toggleInfo();
 		if (isNodes && isM) toggleNodes();
 		isLv = !isLv;
 
 		var lvID = "liveview";
-		// if (isM) {   
-		// 	lvID = "liveview2D"
-		// 	if (isLv) {
-		// 	var cn = '<iframe id="liveview2D" src="about:blank"></iframe>';
-		// 	d.getElementById('kliveview2D').innerHTML = cn;
-		// 	}
-
-		// 	gId('mliveview2D').style.transform = (isLv) ? "translateY(0px)":"translateY(100%)";
-		// }
 
 		gId(lvID).style.display = (isLv) ? "block":"none";
 		var url = (loc?`http://${locip}`:'') + "/" + lvID;
 		gId(lvID).src = (isLv) ? url:"about:blank";
-		gId('buttonSr').className = (isLv) ? "active":"";
-		if (!isLv && ws && ws.readyState === WebSocket.OPEN) ws.send('{"lv":false}');
 		size();
 	}
+
+	gId('buttonSr').className = (isLv) ? "active":"";
+	if (ws && ws.readyState === WebSocket.OPEN) ws.send(`{"lv":${isLv}}`);
 }
 
 function toggleInfo()
@@ -3235,7 +3225,7 @@ function size()
 	var h = gId('top').clientHeight;
 	sCol('--th', h + "px");
 	sCol('--bh', gId('bot').clientHeight + "px");
-	if (isLv) h -= 4;
+	if (isLv && !isM) h -= 4; //WLEDMM: no for matrices
 	sCol('--tp', h + "px");
 	togglePcMode();
 }
@@ -3247,7 +3237,7 @@ function togglePcMode(fromB = false)
 		localStorage.setItem('pcm', pcModeA);
 		pcMode = pcModeA;
 	}
-	if (wW < 1024 && !pcMode) return;
+	if (wW <= 1024 && !pcMode) return;
 	if (!fromB && ((wW <= 1024 && lastw <= 1024) || (wW > 1024 && lastw > 1024))) return;
 	openTab(0, true);
 	if (wW <= 1024) {pcMode = false;}

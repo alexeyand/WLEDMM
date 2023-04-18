@@ -182,7 +182,7 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
   if (elem["on"].is<const char*>() && elem["on"].as<const char*>()[0] == 't') on = !on;
   seg.setOption(SEG_OPTION_ON, on); // use transition
 
-  //WLEDMM Custom Effects (but general usable)
+  //WLEDMM ARTIFX (but general usable)
   bool reset = elem["reset"];
   if (reset)
     seg.markForReset();
@@ -828,6 +828,7 @@ void serializeInfo(JsonObject root)
     case REALTIME_MODE_ARTNET:   root["lm"] = F("Art-Net"); break;
     case REALTIME_MODE_TPM2NET:  root["lm"] = F("tpm2.net"); break;
     case REALTIME_MODE_DDP:      root["lm"] = F("DDP"); break;
+    case REALTIME_MODE_DMX:      root["lm"] = F("DMX"); break;
   }
 
   if (realtimeIP[0] == 0)
@@ -897,7 +898,6 @@ void serializeInfo(JsonObject root)
   #endif
   root[F("lwip")] = 0; //deprecated
   root[F("totalheap")] = ESP.getHeapSize(); //WLEDMM
-  root[F("getflash")] = ESP.getFlashChipSize(); //WLEDMM and Athom
   #else
   root[F("arch")] = "esp8266";
   root[F("core")] = ESP.getCoreVersion();
@@ -907,6 +907,7 @@ void serializeInfo(JsonObject root)
   #endif
   root[F("lwip")] = LWIP_VERSION_MAJOR;
   #endif
+  root[F("getflash")] = ESP.getFlashChipSize(); //WLEDMM and Athom, works for both ESP32 and ESP8266
 
   root[F("freeheap")] = ESP.getFreeHeap();
   //WLEDMM: conditional on esp32

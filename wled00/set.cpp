@@ -314,6 +314,12 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     t = request->arg(F("WO")).toInt();
     if (t >= -255  && t <= 255) arlsOffset = t;
 
+#ifdef WLED_ENABLE_DMX_INPUT
+    dmxTransmitPin = request->arg(F("DMT")).toInt();
+    dmxReceivePin = request->arg(F("DMR")).toInt();
+    dmxEnablePin= request->arg(F("DME")).toInt();
+#endif
+
     alexaEnabled = request->hasArg(F("AL"));
     strlcpy(alexaInvocationName, request->arg(F("AI")).c_str(), 33);
     t = request->arg(F("AP")).toInt();
@@ -573,7 +579,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("handleSettingsSet(): Could not allocate I2C pins - deallocating."));
       uint8_t i2c[2] = { static_cast<uint8_t>(i2c_scl), static_cast<uint8_t>(i2c_sda) };
       pinManager.deallocateMultiplePins(i2c, 2, PinOwner::HW_I2C); // just in case deallocation of old pins
-      Serial.printf("pinmgr not success for global i2c %d %d\n", i2c_sda, i2c_scl);
+      DEBUG_PRINTF("pinmgr not success for global i2c %d %d\n", i2c_sda, i2c_scl);
     }
 
     #ifdef ESP8266
@@ -604,7 +610,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       DEBUG_PRINTLN(F("Could not allocate SPI pins."));
       uint8_t spi[3] = { static_cast<uint8_t>(spi_mosi), static_cast<uint8_t>(spi_miso), static_cast<uint8_t>(spi_sclk) };
       pinManager.deallocateMultiplePins(spi, 3, PinOwner::HW_SPI); // just in case deallocation of old pins
-      Serial.printf("pinmgr not success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
+      DEBUG_PRINTF("pinmgr not success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
     }
 
     JsonObject um = doc.createNestedObject("um");

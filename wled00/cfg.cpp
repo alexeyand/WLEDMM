@@ -320,9 +320,9 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called prior)
     #endif
     // Wire.begin(); // WLEDMM moved into pinManager
-    Serial.printf("pinmgr success for global i2c %d %d\n", i2c_sda, i2c_scl);
+    DEBUG_PRINTF("pinmgr success for global i2c %d %d\n", i2c_sda, i2c_scl);
   } else {
-    Serial.printf("pinmgr not success for global i2c %d %d\n", i2c_sda, i2c_scl);
+    DEBUG_PRINTF("pinmgr not success for global i2c %d %d\n", i2c_sda, i2c_scl);
   }
   JsonArray hw_if_spi = hw[F("if")][F("spi-pin")];
   CJSON(spi_mosi, hw_if_spi[0]);
@@ -335,9 +335,9 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     #else
     SPI.begin();
     #endif
-    Serial.printf("pinmgr success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
+    DEBUG_PRINTF("pinmgr success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
   } else {
-    Serial.printf("pinmgr not success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
+    DEBUG_PRINTF("pinmgr not success for global spi %d %d %d\n", spi_mosi, spi_miso, spi_sclk);
   }
 
   //int hw_status_pin = hw[F("status")]["pin"]; // -1
@@ -435,6 +435,13 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   tdd = if_live[F("timeout")] | -1;
   if (tdd >= 0) realtimeTimeoutMs = tdd * 100;
+
+  #ifdef WLED_ENABLE_DMX_INPUT
+    CJSON(dmxTransmitPin, if_live_dmx[F("rxPin")]);
+    CJSON(dmxReceivePin, if_live_dmx[F("txPin")]);
+    CJSON(dmxEnablePin, if_live_dmx[F("enablePin")]);
+  #endif
+
   CJSON(arlsForceMaxBri, if_live[F("maxbri")]);
   CJSON(arlsDisableGammaCorrection, if_live[F("no-gc")]); // false
   CJSON(arlsOffset, if_live[F("offset")]); // 0
@@ -902,6 +909,11 @@ void serializeConfig() {
   if_live_dmx[F("addr")] = DMXAddress;
   if_live_dmx[F("dss")] = DMXSegmentSpacing;
   if_live_dmx["mode"] = DMXMode;
+  #ifdef WLED_ENABLE_DMX_INPUT
+    if_live_dmx[F("rxPin")] = dmxTransmitPin;
+    if_live_dmx[F("txPin")] = dmxReceivePin;
+    if_live_dmx[F("enablePin")] = dmxEnablePin;
+  #endif
 
   if_live[F("timeout")] = realtimeTimeoutMs / 100;
   if_live[F("maxbri")] = arlsForceMaxBri;
@@ -1060,7 +1072,9 @@ bool deserializeConfigSec() {
   JsonObject ap = doc["ap"];
   getStringFromJson(apPass, ap["psk"] , 65);
 
+#if defined(WLED_ENABLE_MQTT) || !defined(WLED_DISABLE_HUESYNC)
   JsonObject interfaces = doc["if"];
+#endif
 
 #ifdef WLED_ENABLE_MQTT
   JsonObject if_mqtt = interfaces["mqtt"];
@@ -1099,7 +1113,10 @@ void serializeConfigSec() {
   JsonObject ap = doc.createNestedObject("ap");
   ap["psk"] = apPass;
 
+#if defined(WLED_ENABLE_MQTT) || !defined(WLED_DISABLE_HUESYNC)
   JsonObject interfaces = doc.createNestedObject("if");
+#endif
+
 #ifdef WLED_ENABLE_MQTT
   JsonObject if_mqtt = interfaces.createNestedObject("mqtt");
   if_mqtt["psk"] = mqttPass;

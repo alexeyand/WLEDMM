@@ -316,7 +316,7 @@
 #define FX_MODE_WAVESINS               184
 #define FX_MODE_ROCKTAVES              185
 #define FX_MODE_2DAKEMI                186
-#define FX_MODE_CUSTOMEFFECT           187 //WLEDMM Custom Effects
+#define FX_MODE_ARTIFX                 187 //WLEDMM ARTIFX
 
 #define MODE_COUNT                     188
 
@@ -616,6 +616,7 @@ typedef struct Segment {
     void blur2d(fract8 blur_amount) { blur(blur_amount); }
     void fill_solid(CRGB c) { fill(RGBW32(c.r,c.g,c.b,0)); }
     void nscale8(uint8_t scale);
+    bool jsonToPixels(char *name, uint8_t fileNr);
   #else
     uint16_t XY(uint16_t x, uint16_t y)                                    { return x; }
     void setPixelColorXY(int x, int y, uint32_t c)                         { setPixelColor(x, c); }

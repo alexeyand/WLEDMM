@@ -1,6 +1,6 @@
 /*
-   @title   Usermod Custom Effects (CE)
-   @file    usermod_v2_customeffects.h
+   @title   Usermod ARTIFX (AF)
+   @file    usermod_v2_artifx.h
    @date    20220818
    @author  Ewoud Wijma
    @Copyright (c) 2023 Ewoud Wijma
@@ -17,7 +17,7 @@
 ARTI * arti;
 
 //effect function
-uint16_t mode_customEffect(void) { 
+uint16_t mode_ARTIFX(void) { 
   //tbd: move statics to SEGMENT.data
   static bool succesful;
   static bool notEnoughHeap;
@@ -29,7 +29,7 @@ uint16_t mode_customEffect(void) {
   }
 
   char currentEffect[charLength];
-  strcpy(currentEffect, (SEGMENT.name != nullptr)?SEGMENT.name:"default"); //note: switching preset with segment name to preset without does not clear the SEGMENT.name variable, but not gonna solve here ;-)
+  strncpy(currentEffect, (SEGMENT.name != nullptr)?SEGMENT.name:"default", sizeof(currentEffect)-1); //note: switching preset with segment name to preset without does not clear the SEGMENT.name variable, but not gonna solve here ;-)
 
   if (strcmp(previousEffect, currentEffect) != 0) 
   {
@@ -46,12 +46,7 @@ uint16_t mode_customEffect(void) {
     // artiWrapper = reinterpret_cast<ArtiWrapper*>(SEGENV.data);
     arti = new ARTI();
 
-    char programFileName[fileNameLength];
-    strcpy(programFileName, "/");
-    strcat(programFileName, currentEffect);
-    strcat(programFileName, ".wled");
-
-    succesful = arti->setup("/wledv033.json", programFileName);
+    succesful = arti->setup("/wledv033.json", currentEffect);
 
     if (!succesful)
       ERROR_ARTI("Setup not succesful\n");
@@ -60,9 +55,9 @@ uint16_t mode_customEffect(void) {
   {
     if (succesful) // && SEGENV.call < 250 for each frame
     {
-      if (esp_get_free_heap_size() <= 20000) 
+      if (FREE_SIZE <= 20000) 
       {
-        ERROR_ARTI("Not enough free heap (%u <= 30000)\n", esp_get_free_heap_size());
+        ERROR_ARTI("Not enough free heap (%u <= 30000)\n", FREE_SIZE);
         notEnoughHeap = true;
         succesful = false;
       }
@@ -72,7 +67,7 @@ uint16_t mode_customEffect(void) {
         // static int previousCall;
         // if (millis() - previousMillis > 5000) { //tried SEGENV.aux0 but that looks to be overwritten!!! (dangling pointer???)
         //   previousMillis = millis();
-        //   MEMORY_ARTI("Heap renderFrame %u %u fps\n", esp_get_free_heap_size(), (SEGENV.call - previousCall)/5);
+        //   MEMORY_ARTI("Heap renderFrame %u %u fps\n", FREE_SIZE, (SEGENV.call - previousCall)/5);
         //   previousCall = SEGENV.call;
         // }
         
@@ -82,8 +77,8 @@ uint16_t mode_customEffect(void) {
     else 
     {
       arti->closeLog();
-      if (notEnoughHeap && esp_get_free_heap_size() > 20000) {
-        ERROR_ARTI("Again enough free heap, restart effect (%u > 30000)\n", esp_get_free_heap_size());
+      if (notEnoughHeap && FREE_SIZE > 20000) {
+        ERROR_ARTI("Again enough free heap, restart effect (%u > 30000)\n", FREE_SIZE);
         succesful = true;
         notEnoughHeap = false;
         strcpy(previousEffect, ""); // force new create
@@ -96,12 +91,12 @@ uint16_t mode_customEffect(void) {
     }
   }
 
-  return FRAMETIME;
+  return MAX(frameTime,FRAMETIME);
 }
 
-static const char _data_FX_MODE_CUSTOMEFFECT[] PROGMEM = "⚙️ Custom Effect ☾@Speed,Intensity,Custom 1, Custom 2, Custom 3;!;!;1;mp12=0";
+static const char _data_FX_MODE_ARTIFX[] PROGMEM = "⚙️ ARTI-FX ☾@Speed,Intensity,Custom 1, Custom 2, Custom 3;!;!;1;mp12=0";
 
-class CustomEffectsUserMod : public Usermod {
+class ARTIFXUserMod : public Usermod {
   private:
     // strings to reduce flash memory usage (used more than twice)
     static const char _name[]; //usermod name
@@ -115,7 +110,7 @@ class CustomEffectsUserMod : public Usermod {
 
     void setup() {
       if (!initDone)
-        strip.addEffect(FX_MODE_CUSTOMEFFECT, &mode_customEffect, _data_FX_MODE_CUSTOMEFFECT);
+        strip.addEffect(FX_MODE_ARTIFX, &mode_ARTIFX, _data_FX_MODE_ARTIFX);
       initDone = true;
       enabled = true;
     }
@@ -200,9 +195,9 @@ class CustomEffectsUserMod : public Usermod {
      */
     uint16_t getId()
     {
-      return USERMOD_ID_CUSTOMEFFECTS;
+      return USERMOD_ID_ARTIFX;
     }
 };
 
 // strings to reduce flash memory usage (used more than twice)
-const char CustomEffectsUserMod::_name[]       PROGMEM = "CustomEffects";
+const char ARTIFXUserMod::_name[]       PROGMEM = "ARTIFX";

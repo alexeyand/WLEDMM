@@ -5,7 +5,7 @@
  * Readability defines and their associated numerical values + compile-time constants
  */
 
-#define GRADIENT_PALETTE_COUNT 61 //WLEDMM netmindz ar palette +2, ewowi Random Smooth palette +1
+#define GRADIENT_PALETTE_COUNT 62 //WLEDMM netmindz ar palette +3, ewowi Random Smooth palette +1
 
 //Defaults
 #define DEFAULT_CLIENT_SSID "Your_Network"
@@ -133,9 +133,10 @@
 #define USERMOD_ID_SHT                   39     //Usermod "usermod_sht.h
 #define USERMOD_ID_KLIPPER               40     // Usermod Klipper percentage
 //WLEDMM
-#define USERMOD_ID_CUSTOMEFFECTS         90     //Usermod "usermod_v2_customeffects.h"
+#define USERMOD_ID_ARTIFX                90     //Usermod "usermod_v2_artifx.h"
 #define USERMOD_ID_WEATHER               91     //Usermod "usermod_v2_weather.h"
 #define USERMOD_ID_GAMES                 92     //Usermod "usermod_v2_games.h"
+#define USERMOD_ID_FASTLED               93     //Usermod "usermod_v2_fastled.h"
 
 //Access point behavior
 #define AP_BEHAVIOR_BOOT_NO_CONN          0     //Open AP when no connection after boot
@@ -177,6 +178,7 @@
 #define REALTIME_MODE_ARTNET      6
 #define REALTIME_MODE_TPM2NET     7
 #define REALTIME_MODE_DDP         8
+#define REALTIME_MODE_DMX         9
 
 //realtime override modes
 #define REALTIME_OVERRIDE_NONE    0

@@ -12,6 +12,56 @@
 #include "../tools/ESP32-Chip_info.hpp"
 #endif
 
+
+// WLEDMM some buildenv sanity checks
+
+#ifdef ARDUINO_ARCH_ESP32 // ESP32
+  #if !defined(ESP32)
+    #error please fix your build environment. ESP32 is not defined.
+  #endif
+  #if defined(ESP8266) || defined(ARDUINO_ARCH_ESP8266)
+    #error please fix your build environment. ESP32 and ESP8266 are both defined.
+  #endif
+  // only one of ARDUINO_ARCH_ESP32S2, ARDUINO_ARCH_ESP32S3, ARDUINO_ARCH_ESP32C3 allowed
+  #if defined(ARDUINO_ARCH_ESP32S3) && ( defined(ARDUINO_ARCH_ESP32S2) || defined(ARDUINO_ARCH_ESP32C3) )
+    #error please fix your build environment. only one of ARDUINO_ARCH_ESP32S3, ARDUINO_ARCH_ESP32S2, ARDUINO_ARCH_ESP32C3 may be defined
+  #endif
+  #if defined(ARDUINO_ARCH_ESP32S2) && ( defined(ARDUINO_ARCH_ESP32S3) || defined(ARDUINO_ARCH_ESP32C3) )
+    #error please fix your build environment. only one of ARDUINO_ARCH_ESP32S3, ARDUINO_ARCH_ESP32S2, ARDUINO_ARCH_ESP32C3 may be defined
+  #endif
+  #if defined(CONFIG_IDF_TARGET_ESP32) && ( defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32C3))
+    #error please fix your build environment. only one CONFIG_IDF_TARGET may be defined
+  #endif
+  // make sure we have a supported CONFIG_IDF_TARGET_
+  #if !defined(CONFIG_IDF_TARGET_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S3) && !defined(CONFIG_IDF_TARGET_ESP32S2) && !defined(CONFIG_IDF_TARGET_ESP32C3)
+    #error please fix your build environment. No supported CONFIG_IDF_TARGET was defined
+  #endif
+  #if CONFIG_IDF_TARGET_ESP32_SOLO || CONFIG_IDF_TARGET_ESP32SOLO
+    #warning ESP32 SOLO (single core) is not supported.
+  #endif
+  // only one of CONFIG_IDF_TARGET_ESP32, CONFIG_IDF_TARGET_ESP32S2, CONFIG_IDF_TARGET_ESP32S3, CONFIG_IDF_TARGET_ESP32C3 is allowed
+  #if defined(CONFIG_IDF_TARGET_ESP32) && ( defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32C3))
+    #error please fix your build environment. only one CONFIG_IDF_TARGET may be defined
+  #endif
+  #if defined(CONFIG_IDF_TARGET_ESP32S3) && ( defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32C3))
+    #error please fix your build environment. only one CONFIG_IDF_TARGET may be defined
+  #endif
+  #if defined(CONFIG_IDF_TARGET_ESP32C3) && ( defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2))
+    #error please fix your build environment. only one CONFIG_IDF_TARGET may be defined
+  #endif
+
+#else // 8266
+  #if !defined(ARDUINO_ARCH_ESP8266) && !defined(ARDUINO_ARCH_ESP8265)
+    #error please fix your build environment. Neither ARDUINO_ARCH_ESP8266 nor ARDUINO_ARCH_ESP32 are defined
+  #else
+    #if !defined(ESP8266) && !defined(ESP8265)
+      #error please fix your build environment. ESP8266 is not defined.
+    #endif
+  #endif
+#endif
+// WLEDMM end
+
+
 /*
  * Main WLED class implementation. Mostly initialization and connection logic
  */
@@ -56,6 +106,9 @@ void WLED::loop()
   handleTransitions();
 #ifdef WLED_ENABLE_DMX
   handleDMX();
+#endif
+#ifdef WLED_ENABLE_DMX_INPUT
+  handleDMXInput();
 #endif
   userLoop();
 
@@ -290,27 +343,29 @@ void WLED::setup()
   Serial.begin(115200);
   if (!Serial) delay(1000); // WLEDMM make sure that Serial has initalized
 
-  #if !ARDUINO_USB_CDC_ON_BOOT
-  Serial.setTimeout(50);  // this causes troubles on new MCUs that have a "virtual" USB Serial (HWCDC)
-  #else
-  #endif
-  #if defined(WLED_DEBUG) && defined(ARDUINO_ARCH_ESP32) && (defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32C3) || ARDUINO_USB_CDC_ON_BOOT)
+  #ifdef ARDUINO_ARCH_ESP32
+  #if defined(WLED_DEBUG) && (defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32C3) || ARDUINO_USB_CDC_ON_BOOT)
   if (!Serial) delay(2500);  // WLEDMM allow CDC USB serial to initialise
   #endif
-
-  #if ARDUINO_USB_CDC_ON_BOOT
+  #if ARDUINO_USB_CDC_ON_BOOT || ARDUINO_USB_MODE
   if (!Serial) delay(2500);  // WLEDMM: always allow CDC USB serial to initialise
-  Serial.println("wait 1");  // waiting a bit longer ensures that a  debug messages are shown in serial monitor
+  if (Serial) Serial.println("wait 1");  // waiting a bit longer ensures that a  debug messages are shown in serial monitor
   if (!Serial) delay(2500);
-  Serial.println("wait 2");
+  if (Serial) Serial.println("wait 2");
   if (!Serial) delay(2500);
 
   if (Serial) Serial.flush(); // WLEDMM
-  Serial.setTimeout(350); // WLEDMM: don't change timeout, as it causes crashes later
+  //Serial.setTimeout(350); // WLEDMM: don't change timeout, as it causes crashes later
   // WLEDMM: redirect debug output to HWCDC
+  #if ARDUINO_USB_CDC_ON_BOOT && (defined(WLED_DEBUG) || defined(SR_DEBUG))
   Serial0.setDebugOutput(false);
   Serial.setDebugOutput(true);
-  #else
+  #endif
+  // WLEDMM don't touch serial timeout when we use CDC USB or tinyUSB
+  #else // "standard" serial-to-USB chip
+  if (Serial) Serial.setTimeout(50);  // WLEDMM - only when serial is initialized
+  #endif
+  #else  // 8266
   if (Serial) Serial.setTimeout(50);  // WLEDMM - only when serial is initialized
   #endif
 
@@ -442,6 +497,11 @@ void WLED::setup()
 #ifdef WLED_ENABLE_DMX //reserve GPIO2 as hardcoded DMX pin
   pinManager.allocatePin(2, true, PinOwner::DMX);
 #endif
+#ifdef WLED_ENABLE_DMX_INPUT
+  if(dmxTransmitPin > 0) pinManager.allocatePin(dmxTransmitPin, true, PinOwner::DMX);
+  if(dmxReceivePin > 0) pinManager.allocatePin(dmxReceivePin, true, PinOwner::DMX);
+  if(dmxEnablePin > 0) pinManager.allocatePin(dmxEnablePin, true, PinOwner::DMX);
+#endif
 
 // WLEDMM experimental: support for single neoPixel on Adafruit boards
 #if 0
@@ -529,7 +589,7 @@ void WLED::setup()
   //Serial RX (Adalight, Improv, Serial JSON) only possible if GPIO3 unused
   //Serial TX (Debug, Improv, Serial JSON) only possible if GPIO1 unused
   if (!pinManager.isPinAllocated(hardwareRX) && !pinManager.isPinAllocated(hardwareTX)) {
-    Serial.println(F("Ada"));
+    if (Serial) Serial.println(F("Ada"));
   }
   #endif
 
@@ -541,7 +601,7 @@ void WLED::setup()
 #endif
 
 #ifdef WLED_ENABLE_ADALIGHT
-  if (Serial.available() > 0 && Serial.peek() == 'I') handleImprovPacket();
+  if (Serial && (Serial.available() > 0) && (Serial.peek() == 'I')) handleImprovPacket();
 #endif
 
   strip.service(); // why?
@@ -563,12 +623,12 @@ void WLED::setup()
       ArduinoOTA.setHostname(cmDNS);
   }
 #endif
-#ifdef WLED_ENABLE_DMX
+#if defined(WLED_ENABLE_DMX) || defined(WLED_ENABLE_DMX_INPUT)
   initDMX();
 #endif
 
 #ifdef WLED_ENABLE_ADALIGHT
-  if (Serial.available() > 0 && Serial.peek() == 'I') handleImprovPacket();
+  if (Serial && (Serial.available() > 0) && (Serial.peek() == 'I')) handleImprovPacket();
 #endif
 
   // HTTP server page init
@@ -646,7 +706,7 @@ void WLED::setup()
   // repeat Ada prompt
   #ifdef WLED_ENABLE_ADALIGHT
   if (!pinManager.isPinAllocated(hardwareRX) && !pinManager.isPinAllocated(hardwareTX)) {
-    Serial.println(F("Ada"));
+    if (Serial) Serial.println(F("Ada"));
   }
   #endif
 
@@ -898,10 +958,10 @@ void WLED::initInterfaces()
         #endif
       #endif
     } else {
-      IPAddress ipAddress = Network.localIP();
-      netDebugPrintIP[0] = ipAddress[0];
-      netDebugPrintIP[1] = ipAddress[1];
-      netDebugPrintIP[2] = ipAddress[2];
+      IPAddress ndIpAddress = Network.localIP();
+      netDebugPrintIP[0] = ndIpAddress[0];
+      netDebugPrintIP[1] = ndIpAddress[1];
+      netDebugPrintIP[2] = ndIpAddress[2];
     }
   }
   if (netDebugPrintPort == 0) 

@@ -15,7 +15,8 @@
 
 #define ARTI_ARDUINO 1 
 #define ARTI_EMBEDDED 2
-#ifdef ESP32 //ESP32 is set in wled context: small trick to set WLED context
+// #ifdef ESP32 //ESP32 is set in wled context: small trick to set WLED context
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266) //ESP32 is set in wled context: small trick to set WLED context
   #define ARTI_PLATFORM ARTI_ARDUINO // else on Windows/Linux/Mac...
 #endif
 
@@ -86,12 +87,16 @@ enum Externals
   F_square,
   F_clamp,
 
-  F_printf
+  F_print,
+  F_jsonToPixels, //reorder only when creating new wledvxyz.json
+  F_frameTime,
+  F_soundPressure
 };
 
 #if ARTI_PLATFORM != ARTI_ARDUINO
   #define PI 3.141592654
 #endif
+uint32_t frameTime = 0;
 
 float ARTI::arti_external_function(uint8_t function, float par1, float par2, float par3, float par4, float par5)
 {
@@ -209,6 +214,10 @@ float ARTI::arti_external_function(uint8_t function, float par1, float par2, flo
       case F_millis:
         return millis();
 
+      case F_jsonToPixels:
+        SEGMENT.jsonToPixels(SEGMENT.name,(uint8_t)par1);
+        return floatNull;
+
       default: {}
     }
   #else // not arduino
@@ -273,6 +282,9 @@ float ARTI::arti_external_function(uint8_t function, float par1, float par2, flo
 
       case F_millis:
         return 1000;
+
+      case F_jsonToPixels:
+        return par1;
     }
   #endif
 
@@ -315,7 +327,7 @@ float ARTI::arti_external_function(uint8_t function, float par1, float par2, flo
       return t > par3 ? par3 : t;
     }
 
-    case F_printf: {
+    case F_print: {
       if (par3 == floatNull) {
         if (par2 == floatNull) {
           PRINT_ARTI("%f\n", par1);
@@ -370,15 +382,17 @@ float ARTI::arti_get_external_variable(uint8_t variable, float par1, float par2,
       case F_custom3Slider:
         return SEGMENT.custom3;
       case F_volume:
+      case F_soundPressure:
       {
         um_data_t *um_data;
         if (!usermods.getUMData(&um_data, USERMOD_ID_AUDIOREACTIVE)) {
           // add support for no audio
           um_data = simulateSound(SEGMENT.soundSim);
         }
-        float   volumeSmth  = *(float*)   um_data->u_data[0];
-
-        return volumeSmth;
+        if (variable == F_volume)
+          return *(float*)   um_data->u_data[0]; //volumeSmth
+        else
+          return *(float*)   um_data->u_data[9]; //soundPressure
       }
       case F_hour:
         return ((float)hour(localTime));
@@ -421,6 +435,8 @@ float ARTI::arti_get_external_variable(uint8_t variable, float par1, float par2,
         return F_custom3Slider;
       case F_volume:
         return F_volume;
+      case F_soundPressure:
+        return F_soundPressure;
 
       case F_hour:
         return F_hour;
@@ -439,7 +455,7 @@ float ARTI::arti_get_external_variable(uint8_t variable, float par1, float par2,
 void ARTI::arti_set_external_variable(float value, uint8_t variable, float par1, float par2, float par3)
 {
   #if ARTI_PLATFORM == ARTI_ARDUINO
-    // MEMORY_ARTI("%s %s %u %u (%u)\n", spaces+50-depth, variable_name, par1, par2, esp_get_free_heap_size());
+    // MEMORY_ARTI("%s %s %u %u (%u)\n", spaces+50-depth, variable_name, par1, par2, FREE_SIZE);
     switch (variable)
     {
       case F_leds:
@@ -453,6 +469,9 @@ void ARTI::arti_set_external_variable(float value, uint8_t variable, float par1,
         else
           SEGMENT.setPixelColorXY((uint16_t)par1%SEGMENT.virtualWidth(), (uint16_t)par2%SEGMENT.virtualHeight(), value); //2D value!!
 
+        return;
+      case F_frameTime:
+        frameTime = (uint16_t)value;
         return;
     }
   #else
@@ -469,6 +488,9 @@ void ARTI::arti_set_external_variable(float value, uint8_t variable, float par1,
         else
           RUNLOG_ARTI("arti_set_external_variable: leds(%f, %f) := %f\n", par1, par2, value);
 
+        return;
+      case F_frameTime:
+        frameTime = (uint16_t)value;
         return;
     }
   #endif

@@ -423,7 +423,7 @@ um_data_t* simulateSound(uint8_t simulationId)
     // NOTE!!!
     // This may change as AudioReactive usermod may change
     um_data = new um_data_t;
-    um_data->u_size = 8;
+    um_data->u_size = 11;
     um_data->u_type = new um_types_t[um_data->u_size];
     um_data->u_data = new void*[um_data->u_size];
     um_data->u_data[0] = &volumeSmth;
@@ -434,6 +434,9 @@ um_data_t* simulateSound(uint8_t simulationId)
     um_data->u_data[5] = &my_magnitude;
     um_data->u_data[6] = &maxVol;
     um_data->u_data[7] = &binNum;
+    um_data->u_data[8]  = &FFT_MajorPeak; // dummy (FFT Peak smoothed)
+    um_data->u_data[9]  = &volumeSmth;    // dummy (soundPressure)
+    um_data->u_data[10] = &volumeSmth;    // dummy (agcSensitivity)
   } else {
     // get arrays from um_data
     fftResult =  (uint8_t*)um_data->u_data[2];
@@ -494,8 +497,8 @@ um_data_t* simulateSound(uint8_t simulationId)
   }
 
   samplePeak    = random8() > 250;
-  FFT_MajorPeak = volumeSmth;
-  maxVol        = 10;  // this gets feedback fro UI
+  FFT_MajorPeak = 21 + (volumeSmth*volumeSmth) / 8.0f; // WLEDMM 21hz...8200hz
+  maxVol        = 31;  // this gets feedback fro UI
   binNum        = 8;   // this gets feedback fro UI
   volumeRaw = volumeSmth;
   my_magnitude = 10000.0 / 8.0f; //no idea if 10000 is a good value for FFT_Magnitude ???
@@ -522,9 +525,15 @@ CRGB getCRGBForBand(int x, uint8_t *fftResult, int pal) {
     } 
   }
   else if(pal == 72) {
-    int b = map(x, 0, 255, 0, 8); // convert palette position to lower half of freq band
+    int b = map(x, 1, 255, 0, 10); // convert palette position to lower half of freq band
     hsv = CHSV(fftResult[b], 255, map(fftResult[b], 0, 255, 30, 255));  // pick hue
     hsv2rgb_rainbow(hsv, value);  // convert to R,G,B
   }
+  else if(pal == 73) {
+    int b = map(x, 0, 255, 0, 8); // convert palette position to lower half of freq band
+    hsv = CHSV(uint8_t(fftResult[b]), 255, x);
+    hsv2rgb_rainbow(hsv, value);  // convert to R,G,B
+  }
+
   return value;
-}
+} 

@@ -8,7 +8,7 @@
  */
 
 // version code in format yymmddb (b = daily build)
-#define VERSION 2303280
+#define VERSION 2304170
 
 //uncomment this if you have a "my_config.h" file you'd like to use
 #define WLED_USE_MY_CONFIG
@@ -36,6 +36,7 @@
   #undef WLED_ENABLE_ADALIGHT      // disable has priority over enable
 #endif
 //#define WLED_ENABLE_DMX          // uses 3.5kb (use LEDPIN other than 2)
+//#define WLED_ENABLE_DMX_INPUT      // Listen for DMX over Serial
 //#define WLED_ENABLE_JSONLIVE     // peek LED output via /json/live (WS binary peek is always enabled)
 #ifndef WLED_DISABLE_LOXONE
   #define WLED_ENABLE_LOXONE       // uses 1.2kb
@@ -294,7 +295,7 @@ WLED_GLOBAL byte apBehavior _INIT(AP_BEHAVIOR_BOOT_NO_CONN);       // access poi
 WLED_GLOBAL IPAddress staticIP      _INIT_N(((  0,   0,  0,  0))); // static IP of ESP
 WLED_GLOBAL IPAddress staticGateway _INIT_N(((  0,   0,  0,  0))); // gateway (router) IP
 WLED_GLOBAL IPAddress staticSubnet  _INIT_N(((255, 255, 255, 0))); // most common subnet in home networks
-#if defined(ARDUINO_ARCH_ESP32) && !defined(ARDUINO_ESP32_PICO)
+#if defined(ARDUINO_ARCH_ESP32) && !defined(ARDUINO_ESP32_PICO) && !defined(WLEDMM_WIFI_POWERON_HACK)
 WLED_GLOBAL bool noWifiSleep _INIT(true);                          // disabling modem sleep modes will increase heat output and power usage, but may help with connection issues
 #else
 WLED_GLOBAL bool noWifiSleep _INIT(false);
@@ -324,7 +325,11 @@ WLED_GLOBAL float gammaCorrectVal _INIT(2.8f); // gamma correction value
 
 WLED_GLOBAL byte col[]    _INIT_N(({ 255, 160, 0, 0 }));  // current RGB(W) primary color. col[] should be updated if you want to change the color.
 WLED_GLOBAL byte colSec[] _INIT_N(({ 0, 0, 0, 0 }));      // current RGB(W) secondary color
+#if defined(ABL_MILLIAMPS_DEFAULT) && ABL_MILLIAMPS_DEFAULT < 600
+WLED_GLOBAL byte briS     _INIT(64);                      // WLEDMM reduce default brightness for low-power devices
+#else
 WLED_GLOBAL byte briS     _INIT(128);                     // default brightness
+#endif
 
 WLED_GLOBAL byte nightlightTargetBri _INIT(0);      // brightness after nightlight is over
 WLED_GLOBAL byte nightlightDelayMins _INIT(60);
@@ -393,6 +398,12 @@ WLED_GLOBAL bool arlsForceMaxBri _INIT(false);                    // enable to f
  #endif
 WLED_GLOBAL uint16_t e131ProxyUniverse _INIT(0);                  // output this E1.31 (sACN) / ArtNet universe via MAX485 (0 = disabled)
 #endif
+#ifdef WLED_ENABLE_DMX_INPUT
+  WLED_GLOBAL int dmxTransmitPin _INIT(0);
+  WLED_GLOBAL int dmxReceivePin _INIT(0);
+  WLED_GLOBAL int dmxEnablePin _INIT(0);
+#endif
+
 WLED_GLOBAL uint16_t e131Universe _INIT(1);                       // settings for E1.31 (sACN) protocol (only DMX_MODE_MULTIPLE_* can span over consequtive universes)
 WLED_GLOBAL uint16_t e131Port _INIT(5568);                        // DMX in port. E1.31 default is 5568, Art-Net is 6454
 WLED_GLOBAL byte e131Priority _INIT(0);                           // E1.31 port priority (if != 0 priority handling is active)

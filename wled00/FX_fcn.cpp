@@ -256,7 +256,7 @@ CRGBPalette16 &Segment::loadPalette(CRGBPalette16 &targetPalette, uint8_t pal) {
         targetPalette[i].b = prevRandomPalette[i].b*(5000-timeSinceLastChange)/5000 + randomPalette[i].b*timeSinceLastChange/5000;
       }
       break;}
-    case 73: {//periodically replace palette with a random one. Transition palette change in 500ms
+    case 74: {//periodically replace palette with a random one. Transition palette change in 500ms
       uint32_t timeSinceLastChange = millis() - _lastPaletteChange;
       if (timeSinceLastChange > randomPaletteChangeTime * 1000U) {
         prevRandomPalette = randomPalette;
@@ -316,7 +316,8 @@ CRGBPalette16 &Segment::loadPalette(CRGBPalette16 &targetPalette, uint8_t pal) {
     case 12: //Rainbow stripe colors
       targetPalette = RainbowStripeColors_p; break;
     case 71: //WLEDMM netmindz ar palette +1
-    case 72: //WLEDMM netmindz ar palette +1
+    case 72: //WLEDMM netmindz ar palette +2
+    case 73: //WLEDMM netmindz ar palette +3
         targetPalette.loadDynamicGradientPalette(getAudioPalette(pal)); break; 
     default: //progmem palettes
       if (pal>245) {
@@ -1295,13 +1296,13 @@ uint8_t * Segment::getAudioPalette(int pal) {
   xyz[6] = rgb.g;
   xyz[7] = rgb.b;
   
-  rgb = getCRGBForBand(4, fftResult, pal);
+  rgb = getCRGBForBand(128, fftResult, pal);
   xyz[8] = 128;
   xyz[9] = rgb.r;
   xyz[10] = rgb.g;
   xyz[11] = rgb.b;
   
-  rgb = getCRGBForBand(8, fftResult, pal);
+  rgb = getCRGBForBand(255, fftResult, pal);
   xyz[12] = 255;  // anchor of last color - must be 255
   xyz[13] = rgb.r;
   xyz[14] = rgb.g;
@@ -1319,9 +1320,9 @@ uint8_t * Segment::getAudioPalette(int pal) {
 // enumerate all ledmapX.json files on FS and extract ledmap names if existing
 void WS2812FX::enumerateLedmaps() {
   ledMaps = 1;
-  for (size_t i=1; i<10; i++) {
+  for (int i=1; i<10; i++) {
     char fileName[33];
-    sprintf_P(fileName, PSTR("/ledmap%d.json"), i);
+    snprintf_P(fileName, sizeof(fileName), PSTR("/ledmap%d.json"), i);
     bool isFile = WLED_FS.exists(fileName);
 
         #ifndef ESP8266
@@ -1364,8 +1365,8 @@ void WS2812FX::enumerateLedmaps() {
   uint8_t segment_index = 0;
   for (segment &seg : _segments) {
     if (seg.name != nullptr && strcmp(seg.name, "") != 0) {
-      char fileName[32];
-      sprintf_P(fileName, PSTR("/lm%s.json"), seg.name);
+      char fileName[33];
+      snprintf_P(fileName, sizeof(fileName), PSTR("/lm%s.json"), seg.name);
       bool isFile = WLED_FS.exists(fileName);
       if (isFile) ledMaps |= 1 << (10+segment_index);
     }
@@ -1569,12 +1570,12 @@ void WS2812FX::estimateCurrentAndLimitBri() {
 
   uint32_t powerSum = 0;
 
-  for (uint8_t b = 0; b < busses.getNumBusses(); b++) {
-    Bus *bus = busses.getBus(b);
+  for (uint_fast8_t bNum = 0; bNum < busses.getNumBusses(); bNum++) {
+    Bus *bus = busses.getBus(bNum);
     if (bus->getType() >= TYPE_NET_DDP_RGB) continue; //exclude non-physical network busses
     uint16_t len = bus->getLength();
     uint32_t busPowerSum = 0;
-    for (uint16_t i = 0; i < len; i++) { //sum up the usage of each LED
+    for (uint_fast16_t i = 0; i < len; i++) { //sum up the usage of each LED
       uint32_t c = bus->getPixelColor(i);
       byte r = R(c), g = G(c), b = B(c), w = W(c);
 
@@ -2132,5 +2133,5 @@ const char JSON_palette_names[] PROGMEM = R"=====([
 "Magenta","Magred","Yelmag","Yelblu","Orange & Teal","Tiamat","April Night","Orangery","C9","Sakura",
 "Aurora","Atlantica","C9 2","C9 New","Temperature","Aurora 2","Retro Clown","Candy","Toxy Reaf","Fairy Reaf",
 "Semi Blue","Pink Candy","Red Reaf","Aqua Flash","Yelblu Hot","Lite Light","Red Flash","Blink Red","Red Shift","Red Tide",
-"Candy2","Audio Responsive Ratio ☾","Audio Responsive Hue ☾","* Random Cycle"
+"Candy2","Audio Responsive Ratio ☾","Audio Responsive Hue ☾","Audio Responsive Ramp","* Random Cycle"
 ])=====";

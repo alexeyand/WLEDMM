@@ -58,7 +58,7 @@
 #endif
 
 #ifdef USERMOD_FOUR_LINE_DISPLAY
-  #ifdef USE_ALT_DISPLAY
+  #if defined(USE_ALT_DISPLAY) || defined(USE_ALT_DISPlAY)
     #include "../usermods/usermod_v2_four_line_display_ALT/usermod_v2_four_line_display_ALT.h"
   #else
     #include "../usermods/usermod_v2_four_line_display/usermod_v2_four_line_display.h"
@@ -66,7 +66,7 @@
 #endif
 
 #ifdef USERMOD_ROTARY_ENCODER_UI
-  #ifdef USE_ALT_DISPLAY
+  #if defined(USE_ALT_DISPLAY) || defined(USE_ALT_DISPlAY)
     #include "../usermods/usermod_v2_rotary_encoder_ui_ALT/usermod_v2_rotary_encoder_ui_ALT.h"
   #else
     #include "../usermods/usermod_v2_rotary_encoder_ui/usermod_v2_rotary_encoder_ui.h"
@@ -190,9 +190,9 @@
 #endif
 
 
-//WLEDMM Custom Effects
-#ifdef USERMOD_CUSTOMEFFECTS
-#include "../usermods/customeffects/usermod_v2_customeffects.h"
+//WLEDMM ARTIFX
+#ifdef USERMOD_ARTIFX
+#include "../usermods/artifx/usermod_v2_artifx.h"
 #endif
 
 #ifdef USERMOD_WEATHER
@@ -204,6 +204,9 @@
 #endif
 #ifdef USERMOD_GAMES
 #include "../usermods/usermod_v2_games/usermod_v2_games.h"
+#endif
+#ifdef USERMOD_FASTLED
+#include "../usermods/usermod_v2_fastled/usermod_v2_fastled.h"
 #endif
 
 void registerUsermods()
@@ -374,9 +377,9 @@ void registerUsermods()
   usermods.add(new ShtUsermod());
   #endif
 
-  //WLEDMM Custom Effects
-  #ifdef USERMOD_CUSTOMEFFECTS
-  usermods.add(new CustomEffectsUserMod());
+  //WLEDMM ARTIFX
+  #ifdef USERMOD_ARTIFX
+  usermods.add(new ARTIFXUserMod());
   #endif
   
   #ifdef USERMOD_WEATHER
@@ -390,5 +393,8 @@ void registerUsermods()
 
   #ifdef USERMOD_GAMES
   usermods.add(new GamesUsermod());
+  #endif
+  #ifdef USERMOD_FASTLED
+  usermods.add(new FastledUsermod("Fastled", true));
   #endif
 }

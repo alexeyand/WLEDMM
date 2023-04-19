@@ -254,7 +254,7 @@ void WLED::loop()
 	#ifdef ARDUINO_ARCH_ESP32
     DEBUG_PRINTF("%s min free stack %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL)); //WLEDMM
 	#endif
-    #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_PSRAM)
+    #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
     if (psramFound()) {
       //DEBUG_PRINT(F("Total PSRAM: "));    DEBUG_PRINT(ESP.getPsramSize()/1024); DEBUG_PRINTLN("kB");
       DEBUG_PRINT(F("Free PSRAM:  "));     DEBUG_PRINT(ESP.getFreePsram()/1024); DEBUG_PRINTLN("kB");
@@ -468,7 +468,8 @@ void WLED::setup()
   DEBUG_PRINTF("%s min free stack %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL)); //WLEDMM
 #endif
 
-  #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_PSRAM)
+  #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+  psramInit();
   if (psramFound()) {
 #if !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32S2) && !defined(CONFIG_IDF_TARGET_ESP32S3)
     // GPIO16/GPIO17 reserved for SPI RAM
@@ -485,7 +486,7 @@ void WLED::setup()
       DEBUG_PRINTLN(F("No PSRAM found."));
   #endif
   #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && !defined(WLED_USE_PSRAM)
-      DEBUG_PRINTLN(F("PSRAM not used."));
+      DEBUG_PRINTLN(F("PSRAM not used for LEDs."));
   #endif
 
   //DEBUG_PRINT(F("LEDs inited. heap usage ~"));
@@ -755,6 +756,9 @@ void WLED::initAP(bool resetAP)
     apActive = false;
     return;
   }
+  #ifdef WLEDMM_WIFI_POWERON_HACK
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // reduce TX power - required for C3 mini v1.0.0 (wemos), see https://www.wemos.cc/en/latest/c3/c3_mini_1_0_0.html#about-wifi
+  #endif
 
   if (!apActive) // start captive portal if AP active
   {

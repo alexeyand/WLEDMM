@@ -8,7 +8,7 @@
  */
 
 // version code in format yymmddb (b = daily build)
-#define VERSION 2304170
+#define VERSION 2304190
 
 //uncomment this if you have a "my_config.h" file you'd like to use
 #define WLED_USE_MY_CONFIG
@@ -146,7 +146,7 @@
 // The following is a construct to enable code to compile without it.
 // There is a code thet will still not use PSRAM though:
 //    AsyncJsonResponse is a derived class that implements DynamicJsonDocument (AsyncJson-v6.h)
-#if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_PSRAM)
+#if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))
 struct PSRAM_Allocator {
   void* allocate(size_t size) {
     if (psramFound()) return ps_malloc(size); // use PSRAM if it exists

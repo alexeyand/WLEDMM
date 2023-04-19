@@ -11,7 +11,7 @@
 #define VERSION 2304170
 
 //uncomment this if you have a "my_config.h" file you'd like to use
-#define WLED_USE_MY_CONFIG
+//#define WLED_USE_MY_CONFIG
 
 // ESP8266-01 (blue) got too little storage space to work with WLED. 0.10.2 is the last release supporting this unit.
 
@@ -51,7 +51,7 @@
 //#define WLED_DEBUG
 
 // filesystem specific debugging
-//#define WLED_DEBUG_FS
+#define WLED_DEBUG_FS
 
 #ifndef WLED_WATCHDOG_TIMEOUT
   // 3 seconds should be enough to detect a lockup

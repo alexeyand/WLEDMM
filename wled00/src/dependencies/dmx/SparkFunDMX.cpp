@@ -23,7 +23,7 @@ Distributed as-is; no warranty is given.
 #include <HardwareSerial.h>
 
 #define dmxMaxChannel  512
-#define defaultMax 32
+#define defaultMax 220 //32
 
 #define DMXSPEED       250000
 #define DMXFORMAT      SERIAL_8N2

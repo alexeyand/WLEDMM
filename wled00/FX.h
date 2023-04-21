@@ -83,7 +83,8 @@
   assuming each segment uses the same amount of data. 256 for ESP8266, 640 for ESP32. */
 #define FAIR_DATA_PER_SEG (MAX_SEGMENT_DATA / strip.getMaxSegments())
 
-#define MIN_SHOW_DELAY   (_frametime < 16 ? 8 : 15)
+//#define MIN_SHOW_DELAY   (_frametime < 16 ? 8 : 15)
+#define MIN_SHOW_DELAY   (_frametime < 16 ? (_frametime <8? (_frametime <7? (_frametime <6 ? 2 :3) :4) : 8) : 15)    // WLEDMM support higher framerates (up to 250fps)
 
 #define NUM_COLORS       3 /* number of colors per segment */
 #define SEGMENT          strip._segments[strip.getCurrSegmentId()]
@@ -688,6 +689,10 @@ class WS2812FX {  // 96 bytes
       _targetFps(WLED_FPS),
       _frametime(FRAMETIME_FIXED),
       _cumulativeFps(2),
+#ifdef ARDUINO_ARCH_ESP32
+      _cumulativeFps500(2*500),      // WLEDMM more accurate FPS measurement for ESP32
+      _lastShow500(0),
+#endif
       _isServicing(false),
       _isOffRefreshRequired(false),
       _hasWhiteChannel(false),
@@ -906,6 +911,10 @@ class WS2812FX {  // 96 bytes
     uint8_t  _targetFps;
     uint16_t _frametime;
     uint16_t _cumulativeFps;
+#ifdef ARDUINO_ARCH_ESP32
+    uint64_t _cumulativeFps500; // WLEDMM more accurate FPS measurement for ESP32
+    uint64_t _lastShow500;
+#endif
 
     // will require only 1 byte
     struct {
@@ -924,7 +933,7 @@ class WS2812FX {  // 96 bytes
     uint16_t* customMappingTable;
     uint16_t  customMappingSize;
 
-    uint32_t _lastShow;
+    /*uint32_t*/ unsigned long _lastShow; // WLEDMM avoid losing precision
 
     uint8_t _segment_index;
     uint8_t _mainSegment;

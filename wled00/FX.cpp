@@ -2809,7 +2809,7 @@ uint16_t mode_bouncing_balls(void) {
       // number of balls based on intensity setting to max of 7 (cycles colors)
       // non-chosen color is a random color
       uint16_t numBalls = (SEGMENT.intensity * (maxNumBalls - 1)) / 255 + 1; // minimum 1 ball
-      const float gravity = -9.81; // standard value of gravity
+      constexpr float gravity = -9.81; // standard value of gravity
       const bool hasCol2 = SEGCOLOR(2);
       const unsigned long time = millis();
 
@@ -5880,9 +5880,10 @@ uint16_t mode_2Dscrollingtext(void) {
   }
   const int yoffset = map(SEGMENT.intensity, 0, 255, -rows/2, rows/2) + (rows-letterHeight)/2;
   char text[33] = {'\0'};
-  if (SEGMENT.name) for (size_t i=0,j=0; i<strlen(SEGMENT.name); i++) if (SEGMENT.name[i]>31 && SEGMENT.name[i]<128) text[j++] = SEGMENT.name[i];
+  unsigned maxLen = (SEGMENT.name) ? min(32, (int)strlen(SEGMENT.name)) : 0;  // WLEDMM make it robust against too long segment names
+  if (SEGMENT.name) for (size_t i=0,j=0; i<maxLen; i++) if (SEGMENT.name[i]>31 && SEGMENT.name[i]<128) text[j++] = SEGMENT.name[i];
 
-  if (!strlen(text) || !strncmp_P(text,PSTR("#DATE"),5) || !strncmp_P(text,PSTR("#DDMM"),5) || !strncmp_P(text,PSTR("#MMDD"),5) || !strncmp_P(text,PSTR("#TIME"),5) || !strncmp_P(text,PSTR("#HHMM"),5)) { // fallback if empty segment name: display date and time
+  if (!strlen(text) || !strncmp_P(text,PSTR("#F"),2) || !strncmp_P(text,PSTR("#P"),2) || !strncmp_P(text,PSTR("#DATE"),5) || !strncmp_P(text,PSTR("#DDMM"),5) || !strncmp_P(text,PSTR("#MMDD"),5) || !strncmp_P(text,PSTR("#TIME"),5) || !strncmp_P(text,PSTR("#HHMM"),5)) { // fallback if empty segment name: display date and time
     char sec[5];
     byte AmPmHour = hour(localTime);
     boolean isitAM = true;
@@ -5897,6 +5898,8 @@ uint16_t mode_2Dscrollingtext(void) {
     else if (!strncmp_P(text,PSTR("#MMDD"),5)) sprintf_P(text, PSTR("%d/%d"), month(localTime), day(localTime));
     else if (!strncmp_P(text,PSTR("#TIME"),5)) sprintf_P(text, PSTR("%2d:%02d%s"), AmPmHour, minute(localTime), sec);
     else if (!strncmp_P(text,PSTR("#HHMM"),5)) sprintf_P(text, PSTR("%2d:%02d"), AmPmHour, minute(localTime));
+    else if (!strncmp_P(text,PSTR("#FPS"),4)) sprintf_P(text, PSTR("%2d"), (int) strip.getFps());                     // WLEDMM
+    else if (!strncmp_P(text,PSTR("#POW"),4)) sprintf_P(text, PSTR("%3.2fA"), float(strip.currentMilliamps)/1000.0f); // WLEDMM
     else sprintf_P(text, PSTR("%s %d, %d %2d:%02d%s"), monthShortStr(month(localTime)), day(localTime), year(localTime), AmPmHour, minute(localTime), sec);
   }
   const int numberOfLetters = strlen(text);
@@ -6419,7 +6422,7 @@ uint16_t mode_matripix(void) {                  // Matripix. By Andrew Tuline.
   }
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500 % 16;
-  if(SEGENV.aux0 != secondHand) {
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     int pixBri = volumeRaw * SEGMENT.intensity / 64;
@@ -6554,7 +6557,7 @@ uint16_t mode_pixelwave(void) {                 // Pixelwave. By Andrew Tuline.
   int16_t volumeRaw    = *(int16_t*)um_data->u_data[1];
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500+1 % 16;
-  if (SEGENV.aux0 != secondHand) {
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     int pixBri = volumeRaw * SEGMENT.intensity / 64;
@@ -6818,7 +6821,7 @@ uint16_t mode_DJLight(void) {                   // Written by ??? Adapted by Wil
   }
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500+1 % 64;
-  if (SEGENV.aux0 != secondHand) {                        // Triggered millis timing.
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     CRGB color = CRGB(0,0,0);
@@ -6928,7 +6931,7 @@ uint16_t mode_freqmatrix(void) {                // Freqmatrix. By Andreas Plesch
   }
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500 % 16;
-  if(SEGENV.aux0 != secondHand) {
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     uint8_t sensitivity = map(SEGMENT.custom3, 0, 31, 1, 10); // reduced resolution slider
@@ -7030,7 +7033,7 @@ uint16_t mode_freqwave(void) {                  // Freqwave. By Andreas Pleschun
   }
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500 % 16;
-  if(SEGENV.aux0 != secondHand) {
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     float sensitivity = mapf(SEGMENT.custom3, 1, 31, 1, 10); // reduced resolution slider
@@ -7224,7 +7227,7 @@ uint16_t mode_waterfall(void) {                   // Waterfall. By: Andrew Tulin
   *maxVol = SEGMENT.custom2 / 2;                          // Our volume comparator.
 
   uint8_t secondHand = micros() / (256-SEGMENT.speed)/500 + 1 % 16;
-  if (SEGENV.aux0 != secondHand) {                        // Triggered millis timing.
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     //uint8_t pixCol = (log10f((float)FFT_MajorPeak) - 2.26f) * 177;  // 10Khz sampling - log10 frequency range is from 2.26 (182hz) to 3.7 (5012hz). Let's scale accordingly.
@@ -7373,7 +7376,7 @@ uint16_t mode_2DFunkyPlank(void) {              // Written by ??? Adapted by Wil
   }
 
   uint8_t secondHand = micros()/(256-SEGMENT.speed)/500+1 % 64;
-  if (SEGENV.aux0 != secondHand) {                        // Triggered millis timing.
+  if((SEGMENT.speed > 254) || (SEGENV.aux0 != secondHand)) {   // WLEDMM allow run run at full speed
     SEGENV.aux0 = secondHand;
 
     // display values of

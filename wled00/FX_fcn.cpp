@@ -26,6 +26,9 @@
 #include "wled.h"
 #include "FX.h"
 #include "palettes.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include <esp_timer.h>     // WLEDMM to get esp_timer_get_time() 
+#endif
 
 /*
   Custom per-LED mapping has moved!
@@ -206,7 +209,7 @@ void Segment::setUpLeds() {
   else if (!leds) {
     #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && defined(WLED_USE_PSRAM)
     if (psramFound())
-      leds = (CRGB*)ps_malloc(sizeof(CRGB)*length());
+      leds = (CRGB*)ps_malloc(sizeof(CRGB)*length()); // WLEDMM: stupid - PSRAM is too slow for this !!!
     else
     #endif
       leds = (CRGB*)malloc(sizeof(CRGB)*length());
@@ -1097,11 +1100,11 @@ void Segment::refreshLightCapabilities() {
  * Fills segment with color
  */
 void Segment::fill(uint32_t c) {
-  const uint16_t cols = is2D() ? virtualWidth() : virtualLength();
-  const uint16_t rows = virtualHeight(); // will be 1 for 1D
-  for(uint16_t y = 0; y < rows; y++) for (uint16_t x = 0; x < cols; x++) {
-    if (is2D()) setPixelColorXY(x, y, c);
-    else        setPixelColor(x, c);
+  const uint_fast16_t cols = is2D() ? virtualWidth() : virtualLength();             // WLEDMM use fast int types
+  const uint_fast16_t rows = virtualHeight(); // will be 1 for 1D
+  for(uint_fast16_t y = 0; y < rows; y++) for (uint_fast16_t x = 0; x < cols; x++) {
+    if (is2D()) setPixelColorXY((uint16_t)x, (uint16_t)y, c);
+    else        setPixelColor((uint16_t)x, c);
   }
 }
 
@@ -1124,8 +1127,8 @@ void Segment::fadePixelColor(uint16_t n, uint8_t fade) {
  * fade out function, higher rate = quicker fade
  */
 void Segment::fade_out(uint8_t rate) {
-  const uint16_t cols = is2D() ? virtualWidth() : virtualLength();
-  const uint16_t rows = virtualHeight(); // will be 1 for 1D
+  const uint_fast16_t cols = is2D() ? virtualWidth() : virtualLength();           // WLEDMM use fast int types
+  const uint_fast16_t rows = virtualHeight(); // will be 1 for 1D
 
   rate = (255-rate) >> 1;
   float mappedRate = float(rate) +1.1;
@@ -1136,7 +1139,7 @@ void Segment::fade_out(uint8_t rate) {
   int g2 = G(color);
   int b2 = B(color);
 
-  for (uint16_t y = 0; y < rows; y++) for (uint16_t x = 0; x < cols; x++) {
+  for (uint_fast16_t y = 0; y < rows; y++) for (uint_fast16_t x = 0; x < cols; x++) {
     color = is2D() ? getPixelColorXY(x, y) : getPixelColor(x);
     int w1 = W(color);
     int r1 = R(color);
@@ -1154,19 +1157,19 @@ void Segment::fade_out(uint8_t rate) {
     gdelta += (g2 == g1) ? 0 : (g2 > g1) ? 1 : -1;
     bdelta += (b2 == b1) ? 0 : (b2 > b1) ? 1 : -1;
 
-    if (is2D()) setPixelColorXY(x, y, r1 + rdelta, g1 + gdelta, b1 + bdelta, w1 + wdelta);
-    else        setPixelColor(x, r1 + rdelta, g1 + gdelta, b1 + bdelta, w1 + wdelta);
+    if (is2D()) setPixelColorXY((uint16_t)x, (uint16_t)y, r1 + rdelta, g1 + gdelta, b1 + bdelta, w1 + wdelta);
+    else        setPixelColor((uint16_t)x, r1 + rdelta, g1 + gdelta, b1 + bdelta, w1 + wdelta);
   }
 }
 
 // fades all pixels to black using nscale8()
 void Segment::fadeToBlackBy(uint8_t fadeBy) {
-  const uint16_t cols = is2D() ? virtualWidth() : virtualLength();
-  const uint16_t rows = virtualHeight(); // will be 1 for 1D
+  const uint_fast16_t cols = is2D() ? virtualWidth() : virtualLength();      // WLEDMM use fast int types
+  const uint_fast16_t rows = virtualHeight(); // will be 1 for 1D
 
-  for (uint16_t y = 0; y < rows; y++) for (uint16_t x = 0; x < cols; x++) {
-    if (is2D()) setPixelColorXY(x, y, CRGB(getPixelColorXY(x,y)).nscale8(255-fadeBy));
-    else        setPixelColor(x, CRGB(getPixelColor(x)).nscale8(255-fadeBy));
+  for (uint_fast16_t y = 0; y < rows; y++) for (uint_fast16_t x = 0; x < cols; x++) {
+    if (is2D()) setPixelColorXY((uint16_t)x, (uint16_t)y, CRGB(getPixelColorXY(x,y)).nscale8(255-fadeBy));
+    else        setPixelColor((uint16_t)x, CRGB(getPixelColor(x)).nscale8(255-fadeBy));
   }
 }
 
@@ -1178,17 +1181,18 @@ void Segment::blur(uint8_t blur_amount)
 #ifndef WLED_DISABLE_2D
   if (is2D()) {
     // compatibility with 2D
-    const uint16_t cols = virtualWidth();
-    const uint16_t rows = virtualHeight();
-    for (uint16_t i = 0; i < rows; i++) blurRow(i, blur_amount); // blur all rows
-    for (uint16_t k = 0; k < cols; k++) blurCol(k, blur_amount); // blur all columns
+    const uint_fast16_t cols = virtualWidth();                 // WLEDMM use fast int types
+    const uint_fast16_t rows = virtualHeight();
+    for (uint_fast16_t i = 0; i < rows; i++) blurRow(i, blur_amount); // blur all rows
+    for (uint_fast16_t k = 0; k < cols; k++) blurCol(k, blur_amount); // blur all columns
     return;
   }
 #endif
   uint8_t keep = 255 - blur_amount;
   uint8_t seep = blur_amount >> 1;
   CRGB carryover = CRGB::Black;
-  for(uint16_t i = 0; i < virtualLength(); i++)
+  uint_fast16_t vlength = virtualLength();
+  for(uint_fast16_t i = 0; i < vlength; i++)
   {
     CRGB cur = CRGB(getPixelColor(i));
     CRGB part = cur;
@@ -1200,9 +1204,9 @@ void Segment::blur(uint8_t blur_amount)
       uint8_t r = R(c);
       uint8_t g = G(c);
       uint8_t b = B(c);
-      setPixelColor(i-1, qadd8(r, part.red), qadd8(g, part.green), qadd8(b, part.blue));
+      setPixelColor((uint16_t)(i-1), qadd8(r, part.red), qadd8(g, part.green), qadd8(b, part.blue));
     }
-    setPixelColor(i,cur.red, cur.green, cur.blue);
+    setPixelColor((uint16_t)i,cur.red, cur.green, cur.blue);
     carryover = part;
   }
 }
@@ -1460,7 +1464,7 @@ void WS2812FX::finalizeInit(void)
 }
 
 void WS2812FX::service() {
-  uint32_t nowUp = millis(); // Be aware, millis() rolls over every 49 days
+  unsigned long nowUp = millis(); // Be aware, millis() rolls over every 49 days // WLEDMM avoid losing precision
   now = nowUp + timebase;
   if (nowUp - _lastShow < MIN_SHOW_DELAY) return;
   bool doShow = false;
@@ -1478,7 +1482,7 @@ void WS2812FX::service() {
     {
       if (seg.grouping == 0) seg.grouping = 1; //sanity check
       doShow = true;
-      uint16_t delay = FRAMETIME;
+      uint16_t frameDelay = FRAMETIME;    // WLEDMM avoid name clash with "delay" function
 
       if (!seg.freeze) { //only run effect function if not frozen
         _virtualSegmentLength = seg.virtualLength();
@@ -1493,14 +1497,14 @@ void WS2812FX::service() {
         // effect blending (execute previous effect)
         // actual code may be a bit more involved as effects have runtime data including allocated memory
         //if (seg.transitional && seg._modeP) (*_mode[seg._modeP])(progress());
-        delay = (*_mode[seg.currentMode(seg.mode)])();
+        frameDelay = (*_mode[seg.currentMode(seg.mode)])();
         if (seg.mode != FX_MODE_HALLOWEEN_EYES) seg.call++;
-        if (seg.transitional && delay > FRAMETIME) delay = FRAMETIME; // force faster updates during transition
+        if (seg.transitional && frameDelay > FRAMETIME) frameDelay = FRAMETIME; // force faster updates during transition
 
         seg.handleTransition();
       }
 
-      seg.next_time = nowUp + delay;
+      seg.next_time = nowUp + frameDelay;
     }
     _segment_index++;
   }
@@ -1630,6 +1634,16 @@ void WS2812FX::show(void) {
   if (diff > 0) fpsCurr = 1000 / diff;
   _cumulativeFps = (3 * _cumulativeFps + fpsCurr) >> 2;
   _lastShow = now;
+#ifdef ARDUINO_ARCH_ESP32                      // WLEDMM more accurate FPS measurement for ESP32
+  uint64_t now500 = esp_timer_get_time() / 2;  // native timer; micros /2 -> millis * 500
+  int64_t diff500 = now500 - _lastShow500;
+  if ((diff500 > 300) && (diff500 < 800000)) { // exclude stupid values (timer rollover, major hickups)
+    float fpcCurr500 = 500000.0f / float(diff500);
+    if (fpcCurr500 > 2)
+      _cumulativeFps500 = (3 * _cumulativeFps500 + (500.0 * fpcCurr500)) / 4;  // average for some smoothing
+  }
+  _lastShow500 = now500;
+#endif
 }
 
 /**
@@ -1646,12 +1660,17 @@ bool WS2812FX::isUpdating() {
  */
 uint16_t WS2812FX::getFps() {
   if (millis() - _lastShow > 2000) return 0;
+#ifdef ARDUINO_ARCH_ESP32
+  return ((_cumulativeFps500 + 250) / 500);  // +250 for proper rounding
+#else
   return _cumulativeFps +1;
+#endif
 }
 
 void WS2812FX::setTargetFps(uint8_t fps) {
-  if (fps > 0 && fps <= 120) _targetFps = fps;
+  if (fps > 0 && fps <= 251) _targetFps = fps;  // WLEDMM allow higher framerates
   _frametime = 1000 / _targetFps;
+  if (_frametime < 1) _frametime = 1;           // WLEDMM better safe than sorry
 }
 
 void WS2812FX::setMode(uint8_t segid, uint8_t m) {
@@ -1745,7 +1764,7 @@ uint16_t WS2812FX::getLengthTotal(void) {
 
 uint16_t WS2812FX::getLengthPhysical(void) {
   uint16_t len = 0;
-  for (size_t b = 0; b < busses.getNumBusses(); b++) {
+  for (unsigned b = 0; b < busses.getNumBusses(); b++) {   //  WLEDMM use native (fast) types
     Bus *bus = busses.getBus(b);
     if (bus->getType() >= TYPE_NET_DDP_RGB) continue; //exclude non-physical network busses
     len += bus->getLength();
@@ -1757,7 +1776,7 @@ uint16_t WS2812FX::getLengthPhysical(void) {
 //returns if there is an RGBW bus (supports RGB and White, not only white)
 //not influenced by auto-white mode, also true if white slider does not affect output white channel
 bool WS2812FX::hasRGBWBus(void) {
-  for (size_t b = 0; b < busses.getNumBusses(); b++) {
+  for (unsigned b = 0; b < busses.getNumBusses(); b++) {    //  WLEDMM use native (fast) types
     Bus *bus = busses.getBus(b);
     if (bus == nullptr || bus->getLength()==0) break;
     if (bus->hasRGB() && bus->hasWhite()) return true;
@@ -1767,7 +1786,7 @@ bool WS2812FX::hasRGBWBus(void) {
 
 bool WS2812FX::hasCCTBus(void) {
   if (cctFromRgb && !correctWB) return false;
-  for (size_t b = 0; b < busses.getNumBusses(); b++) {
+  for (unsigned b = 0; b < busses.getNumBusses(); b++) {    //  WLEDMM use native (fast) types
     Bus *bus = busses.getBus(b);
     if (bus == nullptr || bus->getLength()==0) break;
     switch (bus->getType()) {
@@ -1963,10 +1982,10 @@ uint8_t WS2812FX::setPixelSegment(uint8_t n) {
 void WS2812FX::setRange(uint16_t i, uint16_t i2, uint32_t col) {
   if (i2 >= i)
   {
-    for (uint16_t x = i; x <= i2; x++) setPixelColor(x, col);
+    for (uint_fast16_t x = i; x <= i2; x++) setPixelColor((uint16_t)x, col);    //  WLEDMM use fast int types
   } else
   {
-    for (uint16_t x = i2; x <= i; x++) setPixelColor(x, col);
+    for (uint_fast16_t x = i2; x <= i; x++) setPixelColor((uint16_t)x, col);
   }
 }
 

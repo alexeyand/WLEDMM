@@ -8,7 +8,7 @@
 //#define WLED_DEBUG_NTP
 #define NTP_SYNC_INTERVAL 42000UL //Get fresh NTP time about twice per day
 
-Timezone* tz;
+Timezone* tz = nullptr;
 
 #define TZ_UTC                  0
 #define TZ_UK                   1
@@ -38,7 +38,7 @@ Timezone* tz;
 byte tzCurrent = TZ_INIT; //uninitialized
 
 void updateTimezone() {
-  delete tz;
+  if (tz) {delete tz; tz = nullptr;}
   TimeChangeRule tcrDaylight = {Last, Sun, Mar, 1, 0}; //UTC
   TimeChangeRule tcrStandard = tcrDaylight;            //UTC
 
@@ -226,8 +226,9 @@ void sendNTPPacket()
 
 bool checkNTPResponse()
 {
+  ntpUdp.flush();
   int cb = ntpUdp.parsePacket();
-  if (!cb) return false;
+  if (!cb) {ntpUdp.flush(); return false;}    // WLEDMM flush buffer
 
   uint32_t ntpPacketReceivedTime = millis();
   DEBUG_PRINT(F("NTP recv, l="));

@@ -46,14 +46,20 @@
  * JSON API (De)serialization
  */
 
+static bool inDeepCall = false; // WLEDMM needed so that recursive deserializeSegment() does not remove locks too early
+
+// WLEDMM caution - this function may run outside of arduino loop context (async_tcp with priority=3)
 bool deserializeSegment(JsonObject elem, byte it, byte presetId)
 {
+  const bool iAmGroot = !inDeepCall;  // WLEDMM will only be true if this is the toplevel of the recursion.
   //WLEDMM add USER_PRINT
+  #ifdef WLED_DEBUG
   if (elem.size()!=1 || elem["stop"] != 0) { // not for {"stop":0}
     String temp;
     serializeJson(elem, temp);
     USER_PRINTF("deserializeSegment %s\n", temp.c_str());
   }
+  #endif
 
   byte id = elem["id"] | it;
   if (id >= strip.getMaxSegments()) return false;
@@ -85,12 +91,19 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
     id = strip.getSegmentsNum()-1; // segments are added at the end of list
   }
 
+  // WLEDMM: before changing segments, make sure our strip is _not_ servicing effects in parallel
+  suspendStripService = true; // temporarily lock out strip updates
+  if (strip.isServicing()) {
+    USER_PRINTLN(F("deserializeSegment(): strip is still drawing effects."));
+    strip.waitUntilIdle();
+  }
+
   Segment& seg = strip.getSegment(id);
-  Segment prev = seg; //make a backup so we can tell if something changed
+  Segment prev = seg; //make a backup so we can tell if something changed // WLEDMM fixMe: copy constructor = waste of memory
 
   uint16_t start = elem["start"] | seg.start;
   if (stop < 0) {
-    uint16_t len = elem["len"];
+    int len = elem["len"]; // WLEDMM bugfix for broken presets with len < 0
     stop = (len > 0) ? start + len : seg.stop;
   }
   // 2D segments
@@ -103,7 +116,7 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
     elem.remove("id");  // remove for recursive call
     elem.remove("rpt"); // remove for recursive call
     elem.remove("n");   // remove for recursive call
-    uint16_t len = stop - start;
+    uint16_t len = (stop >= start) ? (stop - start) : 0;  // WLEDMM stop < 1 is allowed, so we need to avoid underflow
     for (size_t i=id+1; i<strip.getMaxSegments(); i++) {
       start = start + len;
       if (start >= strip.getLengthTotal()) break;
@@ -111,8 +124,11 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
       elem["start"] = start;
       elem["stop"]  = start + len;
       elem["rev"]   = !elem["rev"]; // alternate reverse on even/odd segments
-      deserializeSegment(elem, i, presetId); // recursive call with new id
+      inDeepCall = true;  // WLEDMM remember that we are going into recursion
+      deserializeSegment(elem, i, presetId); // recursive call with new id // WLEDMM expect problems like heap overflow
+      if (iAmGroot) inDeepCall = false;  // WLEDMM toplevel -> reset recursion flag
     }
+    if (iAmGroot) suspendStripService = false; // WLEDMM release lock
     return true;
   }
 
@@ -153,10 +169,13 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
   if (map1D2D != M12_jMap && seg.jMap)
     seg.deletejMap();
 
-  if ((spc>0 && spc!=seg.spacing) || seg.map1D2D!=map1D2D) seg.fill(BLACK); // clear spacing gaps
+  if ((spc>0 && spc!=seg.spacing) || seg.map1D2D!=map1D2D) seg.fill(BLACK); // clear spacing gaps // WLEDMM softhack007: this line sometimes crashes with "Stack canary watchpoint triggered (async_tcp)"
 
   seg.map1D2D  = constrain(map1D2D, 0, 7);
-  seg.soundSim = constrain(soundSim, 0, 7);
+  seg.soundSim = constrain(soundSim, 0, 1);
+
+  uint8_t set = elem[F("set")] | seg.set;
+  seg.set = constrain(set, 0, 3);
 
   uint16_t len = 1;
   if (stop > start) len = stop - start;
@@ -168,9 +187,12 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
     of = offsetAbs;
   }
   if (stop > start && of > len -1) of = len -1;
-  seg.set(start, stop, grp, spc, of, startY, stopY);
+  seg.setUp(start, stop, grp, spc, of, startY, stopY);
 
-  if (seg.reset && seg.stop == 0) return true; // segment was deleted & is marked for reset, no need to change anything else
+  if (seg.reset && seg.stop == 0) {
+    if (iAmGroot) suspendStripService = false; // WLEDMM release lock
+    return true; // segment was deleted & is marked for reset, no need to change anything else
+  }
 
   byte segbri = seg.opacity;
   if (getVal(elem["bri"], &segbri)) {
@@ -196,36 +218,43 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
   JsonArray colarr = elem["col"];
   if (!colarr.isNull())
   {
-    for (size_t i = 0; i < 3; i++)
-    {
-      int rgbw[] = {0,0,0,0};
-      bool colValid = false;
-      JsonArray colX = colarr[i];
-      if (colX.isNull()) {
-        byte brgbw[] = {0,0,0,0};
-        const char* hexCol = colarr[i];
-        if (hexCol == nullptr) { //Kelvin color temperature (or invalid), e.g 2400
-          int kelvin = colarr[i] | -1;
-          if (kelvin <  0) continue;
-          if (kelvin == 0) seg.setColor(i, 0);
-          if (kelvin >  0) colorKtoRGB(kelvin, brgbw);
+    if (seg.getLightCapabilities() & 3) {
+      // segment has RGB or White
+      for (size_t i = 0; i < 3; i++)
+      {
+        int rgbw[] = {0,0,0,0};
+        bool colValid = false;
+        JsonArray colX = colarr[i];
+        if (colX.isNull()) {
+          byte brgbw[] = {0,0,0,0};
+          const char* hexCol = colarr[i];
+          if (hexCol == nullptr) { //Kelvin color temperature (or invalid), e.g 2400
+            int kelvin = colarr[i] | -1;
+            if (kelvin <  0) continue;
+            if (kelvin == 0) seg.setColor(i, 0);
+            if (kelvin >  0) colorKtoRGB(kelvin, brgbw);
+            colValid = true;
+          } else { //HEX string, e.g. "FFAA00"
+            colValid = colorFromHexString(brgbw, hexCol);
+          }
+          for (size_t c = 0; c < 4; c++) rgbw[c] = brgbw[c];
+        } else { //Array of ints (RGB or RGBW color), e.g. [255,160,0]
+          byte sz = colX.size();
+          if (sz == 0) continue; //do nothing on empty array
+
+          copyArray(colX, rgbw, 4);
           colValid = true;
-        } else { //HEX string, e.g. "FFAA00"
-          colValid = colorFromHexString(brgbw, hexCol);
         }
-        for (size_t c = 0; c < 4; c++) rgbw[c] = brgbw[c];
-      } else { //Array of ints (RGB or RGBW color), e.g. [255,160,0]
-        byte sz = colX.size();
-        if (sz == 0) continue; //do nothing on empty array
 
-        copyArray(colX, rgbw, 4);
-        colValid = true;
+        if (!colValid) continue;
+
+        seg.setColor(i, RGBW32(rgbw[0],rgbw[1],rgbw[2],rgbw[3]));
+        if (seg.mode == FX_MODE_STATIC) strip.trigger(); //instant refresh
       }
-
-      if (!colValid) continue;
-
-      seg.setColor(i, RGBW32(rgbw[0],rgbw[1],rgbw[2],rgbw[3]));
-      if (seg.mode == FX_MODE_STATIC) strip.trigger(); //instant refresh
+    } else {
+      // non RGB & non White segment (usually On/Off bus)
+      seg.setColor(0, ULTRAWHITE);
+      seg.setColor(1, BLACK);
     }
   }
 
@@ -268,7 +297,9 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
   getVal(elem["ix"], &seg.intensity);
 
   uint8_t pal = seg.palette;
-  if (getVal(elem["pal"], &pal)) seg.setPalette(pal);
+  if (seg.getLightCapabilities() & 1) {  // ignore palette for White and On/Off segments
+    if (getVal(elem["pal"], &pal)) seg.setPalette(pal);
+  }
 
   getVal(elem["c1"], &seg.custom1);
   getVal(elem["c2"], &seg.custom2);
@@ -293,7 +324,7 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
     // freeze and init to black
     if (!seg.freeze) {
       seg.freeze = true;
-      seg.fill(BLACK);
+      seg.fill(BLACK);  // WLEDMM why now?
     }
 
     uint16_t start = 0, stop = 0;
@@ -334,17 +365,22 @@ bool deserializeSegment(JsonObject elem, byte it, byte presetId)
   // send UDP/WS if segment options changed (except selection; will also deselect current preset)
   if (seg.differs(prev) & 0x7F) stateChanged = true;
 
+  if (iAmGroot) suspendStripService = false; // WLEDMM release lock
   return true;
 }
 
 // deserializes WLED state (fileDoc points to doc object if called from web server)
 // presetId is non-0 if called from handlePreset()
+// WLEDMM caution - this function may run outside of arduino loop context (async_tcp with priority=3)
 bool deserializeState(JsonObject root, byte callMode, byte presetId)
 {
+  const bool iAmGroot = !inDeepCall;  // WLEDMM will only be true if this is the toplevel of the recursion.
   //WLEDMM add USER_PRINT
+  #ifdef WLED_DEBUG
   String temp;
   serializeJson(root, temp);
   USER_PRINTF("deserializeState %s\n", temp.c_str());
+  #endif
 
   bool stateResponse = root[F("v")] | false;
 
@@ -389,6 +425,17 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     }
   }
 
+#ifdef ARDUINO_ARCH_ESP32
+  delay(2); // WLEDMM experimental - de-serialize takes time, so allow other tasks to run
+#endif
+
+  // WLEDMM: before changing strip, make sure our strip is _not_ servicing effects in parallel
+  suspendStripService = true; // temporarily lock out strip updates
+  if (strip.isServicing()) {
+    USER_PRINTLN(F("deserializeState(): strip is still drawing effects."));
+    strip.waitUntilIdle();
+  }
+
   // temporary transition (applies only once)
   tr = root[F("tt")] | -1;
   if (tr >= 0)
@@ -419,7 +466,7 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     if (presetsModifiedTime == 0) presetsModifiedTime = timein;
   }
 
-  doReboot = root[F("rb")] | doReboot;
+  if (root[F("psave")].isNull()) doReboot = root[F("rb")] | doReboot;
 
   // do not allow changing main segment while in realtime mode (may get odd results else)
   if (!realtimeMode) strip.setMainSegmentId(root[F("mainseg")] | strip.getMainSegmentId()); // must be before realtimeLock() if "live"
@@ -452,22 +499,28 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
       for (size_t s = 0; s < strip.getSegmentsNum(); s++) {
         Segment &sg = strip.getSegment(s);
         if (sg.isSelected()) {
+          inDeepCall = true;  // WLEDMM remember that we are going into recursion
           deserializeSegment(segVar, s, presetId);
+          if (iAmGroot) inDeepCall = false;  // WLEDMM toplevel -> reset recursion flag
           //didSet = true;
         }
       }
       //TODO: not sure if it is good idea to change first active but unselected segment
       //if (!didSet) deserializeSegment(segVar, strip.getMainSegmentId(), presetId);
     } else {
+      inDeepCall = true;  // WLEDMM remember that we are going into recursion
       deserializeSegment(segVar, id, presetId); //apply only the segment with the specified ID
+      if (iAmGroot) inDeepCall = false;  // WLEDMM toplevel -> reset recursion flag
     }
   } else {
     size_t deleted = 0;
     JsonArray segs = segVar.as<JsonArray>();
+    inDeepCall = true;  // WLEDMM remember that we are going into recursion
     for (JsonObject elem : segs) {
       if (deserializeSegment(elem, it++, presetId) && !elem["stop"].isNull() && elem["stop"]==0) deleted++;
     }
     if (strip.getSegmentsNum() > 3 && deleted >= strip.getSegmentsNum()/2U) strip.purgeSegments(); // batch deleting more than half segments
+    if (iAmGroot) inDeepCall = false;  // WLEDMM toplevel -> reset recursion flag
   }
 
   usermods.readFromJsonState(root);
@@ -505,6 +558,7 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
       presetCycCurr = ps;
       unloadPlaylist();          // applying a preset unloads the playlist
       applyPreset(ps, callMode); // async load from file system (only preset ID was specified)
+      if (iAmGroot) suspendStripService = false; // WLEDMM release lock
       return stateResponse;
     }
   }
@@ -516,9 +570,19 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     else callMode = CALL_MODE_DIRECT_CHANGE;  // possible bugfix for playlist only containing HTTP API preset FX=~
   }
 
+  if (root.containsKey(F("rmcpal")) && root[F("rmcpal")].as<bool>()) {
+    if (strip.customPalettes.size()) {
+      char fileName[32];
+      sprintf_P(fileName, PSTR("/palette%d.json"), strip.customPalettes.size()-1);
+      if (WLED_FS.exists(fileName)) WLED_FS.remove(fileName);
+      strip.loadCustomPalettes();
+    }
+  }
+
   stateUpdated(callMode);
   if (presetToRestore) currentPreset = presetToRestore;
 
+  if (iAmGroot) suspendStripService = false; // WLEDMM release lock
   return stateResponse;
 }
 
@@ -538,7 +602,7 @@ void serializeSegment(JsonObject& root, Segment& seg, byte id, bool forPreset, b
       root[F("stopY")]  = seg.stopY;
     }
   }
-  if (!forPreset) root["len"] = seg.stop - seg.start;
+  if (!forPreset) root["len"] = (seg.stop >= seg.start) ? (seg.stop - seg.start) : 0; // WLEDMM correct handling for stop=0
   root["grp"]    = seg.grouping;
   root[F("spc")] = seg.spacing;
   root[F("of")]  = seg.offset;
@@ -547,6 +611,7 @@ void serializeSegment(JsonObject& root, Segment& seg, byte id, bool forPreset, b
   byte segbri    = seg.opacity;
   root["bri"]    = (segbri) ? segbri : 255;
   root["cct"]    = seg.cct;
+  root[F("set")] = seg.set;
 
   if (segmentBounds && seg.name != nullptr) root["n"] = reinterpret_cast<const char *>(seg.name); //not good practice, but decreases required JSON buffer
 
@@ -975,7 +1040,7 @@ void serializeInfo(JsonObject root)
   #endif
   #if defined(WLED_DEBUG) || defined(WLED_DEBUG_HOST) || defined(SR_DEBUG) || defined(SR_STATS)
   // WLEDMM add status of Serial, incuding pin alloc
-  root[F("serialOnline")] = Serial ? (canUseSerial()?F("Serial ready"):F("Serial in use")) : F("Serial disconected");  // "Disconnected" may happen on boards with USB CDC
+  root[F("serialOnline")] = Serial ? (canUseSerial()?F("Serial ready ☾"):F("Serial in use ☾")) : F("Serial disconected ☾");  // "Disconnected" may happen on boards with USB CDC
   root[F("sRX")] = pinManager.isPinAllocated(hardwareRX) ? pinManager.getPinOwnerText(hardwareRX): F("free");
   root[F("sTX")] = pinManager.isPinAllocated(hardwareTX) ? pinManager.getPinOwnerText(hardwareTX): F("free");
   #endif
@@ -1109,7 +1174,7 @@ void serializePalettes(JsonObject root, AsyncWebServerRequest* request)
           curPalette.add("r");
           curPalette.add("r");
         break;
-      case 73: //WLEDMM random AC
+      case 74: //WLEDMM random AC
           curPalette.add("r");
           curPalette.add("r");
           curPalette.add("r");
@@ -1375,9 +1440,19 @@ bool serveLiveLeds(AsyncWebServerRequest* request, uint32_t wsClient)
   for (size_t i= 0; i < used; i += n)
   {
     uint32_t c = strip.getPixelColor(i);
-    uint8_t r = qadd8(W(c), R(c)); //add white channel to RGB channels as a simple RGBW -> RGB map
-    uint8_t g = qadd8(W(c), G(c));
-    uint8_t b = qadd8(W(c), B(c));
+    // WLEDMM begin: live leds with color gamma correction
+    uint8_t w = W(c);  // not sure why, but it looks better if always using "white" without corrections
+    uint8_t r,g,b;
+    if (gammaCorrectPreview) {
+      r = qadd8(w, unGamma8(R(c))); //R, add white channel to RGB channels as a simple RGBW -> RGB map
+      g = qadd8(w, unGamma8(G(c))); //G
+      b = qadd8(w, unGamma8(B(c))); //B
+    } else {
+    // WLEDMM end
+      r = qadd8(w, R(c)); //add white channel to RGB channels as a simple RGBW -> RGB map
+      g = qadd8(w, G(c));
+      b = qadd8(w, B(c));
+    }
     olen += sprintf(obuf + olen, "\"%06X\",", RGBW32(r,g,b,0));
   }
   olen -= 1;

@@ -141,9 +141,10 @@ void notify(byte callMode, bool followUp)
   IPAddress broadcastIp;
   broadcastIp = ~uint32_t(Network.subnetMask()) | uint32_t(Network.gatewayIP());
 
-  notifierUdp.beginPacket(broadcastIp, udpPort);
-  notifierUdp.write(udpOut, WLEDPACKETSIZE);
-  notifierUdp.endPacket();
+  if (0 != notifierUdp.beginPacket(broadcastIp, udpPort)) { // WLEDMM beginPacket == 0 --> error
+    notifierUdp.write(udpOut, WLEDPACKETSIZE);
+    notifierUdp.endPacket();
+  }
   notificationSentCallMode = callMode;
   notificationSentTime = millis();
   notificationCount = followUp ? notificationCount + 1 : 0;
@@ -189,7 +190,7 @@ void realtimeLock(uint32_t timeoutMs, byte md)
 void exitRealtime() {
   if (!realtimeMode) return;
   if (realtimeOverride == REALTIME_OVERRIDE_ONCE) realtimeOverride = REALTIME_OVERRIDE_NONE;
-  strip.setBrightness(scaledBri(bri));
+  strip.setBrightness(scaledBri(bri), true);
   realtimeTimeout = 0; // cancel realtime mode immediately
   realtimeMode = REALTIME_MODE_INACTIVE; // inform UI immediately
   realtimeIP[0] = 0;
@@ -203,12 +204,19 @@ void exitRealtime() {
 #define TMP2NET_OUT_PORT 65442
 
 void sendTPM2Ack() {
-  notifierUdp.beginPacket(notifierUdp.remoteIP(), TMP2NET_OUT_PORT);
-  uint8_t response_ack = 0xac;
-  notifierUdp.write(&response_ack, 1);
-  notifierUdp.endPacket();
+  if (0 != notifierUdp.beginPacket(notifierUdp.remoteIP(), TMP2NET_OUT_PORT)) {  // WLEDMM beginPacket == 0 --> error
+    uint8_t response_ack = 0xac;
+    notifierUdp.write(&response_ack, 1);
+    notifierUdp.endPacket();
+  }
 }
 
+#ifdef ARDUINO_ARCH_ESP32
+// WLEDMM don't use dynamic arrays for receiving UDP. ESP32 has enough RAM, and handleNotifications() is only called from main loop, so one static buffer should be enough.
+static uint8_t lbuf[UDP_IN_MAXSIZE+1];
+static uint8_t udpIn[UDP_IN_MAXSIZE+1];
+// WLEDMM end
+#endif
 
 void handleNotifications()
 {
@@ -232,24 +240,30 @@ void handleNotifications()
   if (!udpConnected) return;
 
   bool isSupp = false;
-  size_t packetSize = notifierUdp.parsePacket();
-  if (!packetSize && udp2Connected) {
+  notifierUdp.flush();
+  int packetSize = notifierUdp.parsePacket();    // WLEDMM function returns int, not size_t
+  if ((packetSize < 1) && udp2Connected) {
+    notifier2Udp.flush();
     packetSize = notifier2Udp.parsePacket();
     isSupp = true;
   }
+  if (packetSize < 1) packetSize = 0; // WLEDMM
 
   //hyperion / raw RGB
   if (!packetSize && udpRgbConnected) {
+    rgbUdp.flush();
     packetSize = rgbUdp.parsePacket();
     if (packetSize) {
-      if (!receiveDirect) return;
-      if (packetSize > UDP_IN_MAXSIZE || packetSize < 3) return;
+      if (!receiveDirect) {rgbUdp.flush(); notifierUdp.flush(); notifier2Udp.flush(); return;}
+      if (packetSize > UDP_IN_MAXSIZE || packetSize < 3) {rgbUdp.flush(); notifierUdp.flush(); notifier2Udp.flush(); return;}
       realtimeIP = rgbUdp.remoteIP();
       DEBUG_PRINTLN(rgbUdp.remoteIP());
-      uint8_t lbuf[packetSize];
+      #ifndef ARDUINO_ARCH_ESP32
+      uint8_t lbuf[packetSize+1]; // WLEDMM: use global buffer on ESP32
+      #endif
       rgbUdp.read(lbuf, packetSize);
       realtimeLock(realtimeTimeoutMs, REALTIME_MODE_HYPERION);
-      if (realtimeOverride && !(realtimeMode && useMainSegmentOnly)) return;
+      if (realtimeOverride && !(realtimeMode && useMainSegmentOnly)) {notifierUdp.flush(); notifier2Udp.flush(); return;}
       uint16_t id = 0;
       uint16_t totalLen = strip.getLengthTotal();
       for (size_t i = 0; i < packetSize -2; i += 3)
@@ -262,14 +276,16 @@ void handleNotifications()
     }
   }
 
-  if (!(receiveNotifications || receiveDirect)) return;
+  if (!(receiveNotifications || receiveDirect)) {notifierUdp.flush(); notifier2Udp.flush(); return;}
 
   localIP = Network.localIP();
   //notifier and UDP realtime
-  if (!packetSize || packetSize > UDP_IN_MAXSIZE) return;
-  if (!isSupp && notifierUdp.remoteIP() == localIP) return; //don't process broadcasts we send ourselves
+  if (!packetSize || packetSize > UDP_IN_MAXSIZE) {notifierUdp.flush(); notifier2Udp.flush(); return;}
+  if (!isSupp && notifierUdp.remoteIP() == localIP) {notifierUdp.flush(); notifier2Udp.flush(); return;} //don't process broadcasts we send ourselves
 
-  uint8_t udpIn[packetSize +1];
+  #ifndef ARDUINO_ARCH_ESP32
+  uint8_t udpIn[packetSize +1];  // WLEDMM: use global buffer on ESP32
+  #endif
   uint16_t len;
   if (isSupp) len = notifier2Udp.read(udpIn, packetSize);
   else        len =  notifierUdp.read(udpIn, packetSize);
@@ -362,7 +378,7 @@ void handleNotifications()
           uint16_t stopY  = 1, stop   = (udpIn[3+ofs] << 8 | udpIn[4+ofs]);
           uint16_t offset = (udpIn[7+ofs] << 8 | udpIn[8+ofs]);
           if (!receiveSegmentOptions) {
-            selseg.set(start, stop, selseg.grouping, selseg.spacing, offset, startY, stopY);
+            selseg.setUp(start, stop, selseg.grouping, selseg.spacing, offset, startY, stopY);
             continue;
           }
           //for (size_t j = 1; j<4; j++) selseg.setOption(j, (udpIn[9 +ofs] >> j) & 0x01); //only take into account mirrored, on, reversed; ignore selected
@@ -396,9 +412,9 @@ void handleNotifications()
             stopY  = (udpIn[34+ofs] << 8 | udpIn[35+ofs]);
           }
           if (receiveSegmentBounds) {
-            selseg.set(start, stop, udpIn[5+ofs], udpIn[6+ofs], offset, startY, stopY);
+            selseg.setUp(start, stop, udpIn[5+ofs], udpIn[6+ofs], offset, startY, stopY);
           } else {
-            selseg.set(selseg.start, selseg.stop, udpIn[5+ofs], udpIn[6+ofs], selseg.offset, selseg.startY, selseg.stopY);
+            selseg.setUp(selseg.start, selseg.stop, udpIn[5+ofs], udpIn[6+ofs], selseg.offset, selseg.startY, selseg.stopY);
           }
         }
         stateChanged = true;
@@ -676,9 +692,10 @@ void sendSysInfoUDP()
     data[40+i] = (build>>(8*i)) & 0xFF;
 
   IPAddress broadcastIP(255, 255, 255, 255);
-  notifier2Udp.beginPacket(broadcastIP, udpPort2);
-  notifier2Udp.write(data, sizeof(data));
-  notifier2Udp.endPacket();
+  if (0 != notifier2Udp.beginPacket(broadcastIP, udpPort2)) {  // WLEDMM beginPacket == 0 --> error
+    notifier2Udp.write(data, sizeof(data));
+    notifier2Udp.endPacket();
+  }
 }
 
 

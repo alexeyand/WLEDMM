@@ -19,7 +19,9 @@ void getStringFromJson(char* dest, const char* src, size_t len) {
 bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   //WLEDMM add USER_PRINT
-  USER_PRINTF("deserializeConfig\n");
+  // String temp;
+  // serializeJson(doc, temp);
+  DEBUG_PRINTF("deserializeConfig\n");
 
   bool needsSave = false;
   //int rev_major = doc["rev"][0]; // 1
@@ -87,6 +89,19 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   // initialize LED pins and lengths prior to other HW (except for ethernet)
   JsonObject hw_led = hw["led"];
+
+  // WLEDMM: before changing strip, make sure our strip is _not_ servicing effects in parallel
+  suspendStripService = true; // temporarily lock out strip updates
+#ifdef ARDUINO_ARCH_ESP32
+  if (strip.isServicing() && (strncmp(pcTaskGetTaskName(NULL), "loopTask", 8) != 0)) { // if we are in looptask (arduino loop), its safe to proceed without waiting
+    if (fromFS) {
+      USER_PRINTLN(F("deserializeConfig(fromFS): strip is still drawing effects."));
+    } else {
+      USER_PRINTLN(F("deserializeConfig(): strip is still drawing effects."));
+    }
+    strip.waitUntilIdle();
+  }
+#endif
 
   uint8_t autoWhiteMode = RGBW_MODE_MANUAL_ONLY;
   CJSON(strip.ablMilliampsMax, hw_led[F("maxpwr")]);
@@ -177,10 +192,11 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       uint8_t ledType = elm["type"] | TYPE_WS2812_RGB;
       bool reversed = elm["rev"];
       bool refresh = elm["ref"] | false;
+      uint16_t freqkHz = elm[F("freq")] | 0;  // will be in kHz for DotStar and Hz for PWM (not yet implemented fully)
       ledType |= refresh << 7; // hack bit 7 to indicate strip requires off refresh
       uint8_t AWmode = elm[F("rgbwm")] | autoWhiteMode;
       if (fromFS) {
-        BusConfig bc = BusConfig(ledType, pins, start, length, colorOrder, reversed, skipFirst, AWmode);
+        BusConfig bc = BusConfig(ledType, pins, start, length, colorOrder, reversed, skipFirst, AWmode, freqkHz);
         mem += BusManager::memUsage(bc);
         if (mem <= MAX_LED_MEMORY) if (busses.add(bc) == -1) break;  // finalization will be done in WLED::beginStrip()
       } else {
@@ -350,16 +366,20 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   CJSON(gammaCorrectVal, light["gc"]["val"]); // default 2.8
   float light_gc_bri = light["gc"]["bri"];
   float light_gc_col = light["gc"]["col"];
+  float light_gc_prev = light["gc"]["prev"];  // WLEDMM
   if (light_gc_bri > 1.0f) gammaCorrectBri = true;
   else                     gammaCorrectBri = false;
   if (light_gc_col > 1.0f) gammaCorrectCol = true;
   else                     gammaCorrectCol = false;
+  if (light_gc_prev > 1.0f) gammaCorrectPreview = true;  // WLEDMM
+  else                      gammaCorrectPreview = false; // WLEDMM
   if (gammaCorrectVal > 1.0f && gammaCorrectVal <= 3) {
     if (gammaCorrectVal != 2.8f) calcGammaTable(gammaCorrectVal);
   } else {
     gammaCorrectVal = 1.0f; // no gamma correction
     gammaCorrectBri = false;
     gammaCorrectCol = false;
+    gammaCorrectPreview = false; // WLEDMM
   }
 
   JsonObject light_tr = light["tr"];
@@ -464,7 +484,15 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   getStringFromJson(mqttDeviceTopic, if_mqtt[F("topics")][F("device")], 33); // "wled/test"
   getStringFromJson(mqttGroupTopic, if_mqtt[F("topics")][F("group")], 33); // ""
+  CJSON(retainMqttMsg, if_mqtt[F("rtn")]);
 #endif
+
+#ifndef WLED_DISABLE_ESPNOW
+  JsonObject remote = doc["remote"];
+  CJSON(enable_espnow_remote, remote[F("remote_enabled")]);
+  getStringFromJson(linked_remote, remote[F("linked_remote")], 13);
+#endif
+
 
 #ifndef WLED_DISABLE_HUESYNC
   JsonObject if_hue = interfaces["hue"];
@@ -595,6 +623,8 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   if (!usermods_settings.isNull()) {
     needsSave = !usermods.readFromConfig(usermods_settings);
   }
+
+  suspendStripService = false; // WLEDMM release lock
 
   if (fromFS) return needsSave;
   // if from /json/cfg
@@ -784,6 +814,7 @@ void serializeConfig() {
     ins["type"] = bus->getType() & 0x7F;
     ins["ref"] = bus->isOffRefreshRequired();
     ins[F("rgbwm")] = bus->getAutoWhiteMode();
+    ins[F("freq")] = bus->getFrequency();
   }
 
   JsonArray hw_com = hw.createNestedArray(F("com"));
@@ -850,6 +881,7 @@ void serializeConfig() {
   JsonObject light_gc = light.createNestedObject("gc");
   light_gc["bri"] = (gammaCorrectBri) ? gammaCorrectVal : 1.0f;  // keep compatibility
   light_gc["col"] = (gammaCorrectCol) ? gammaCorrectVal : 1.0f;  // keep compatibility
+  light_gc["prev"] = (gammaCorrectPreview) ? gammaCorrectVal : 1.0f;  // WLEDMM
   light_gc["val"] = gammaCorrectVal;
 
   JsonObject light_tr = light.createNestedObject("tr");
@@ -937,11 +969,19 @@ void serializeConfig() {
   if_mqtt[F("user")] = mqttUser;
   if_mqtt[F("pskl")] = strlen(mqttPass);
   if_mqtt[F("cid")] = mqttClientID;
+  if_mqtt[F("rtn")] = retainMqttMsg;
 
   JsonObject if_mqtt_topics = if_mqtt.createNestedObject(F("topics"));
   if_mqtt_topics[F("device")] = mqttDeviceTopic;
   if_mqtt_topics[F("group")] = mqttGroupTopic;
 #endif
+
+#ifndef WLED_DISABLE_ESPNOW
+  JsonObject remote = doc.createNestedObject(F("remote"));
+  remote[F("remote_enabled")] = enable_espnow_remote;
+  remote[F("linked_remote")] = linked_remote;
+#endif
+
 
 #ifndef WLED_DISABLE_HUESYNC
   JsonObject if_hue = interfaces.createNestedObject("hue");
@@ -1044,7 +1084,7 @@ void serializeConfig() {
   usermods.addToConfig(usermods_settings);
 
   //WLEDMM add USER_PRINT
-  USER_PRINTF("serializeConfig\n");
+  DEBUG_PRINTF("serializeConfig\n");
 
   File f = WLED_FS.open("/cfg.json", "w");
   if (f) serializeJson(doc, f);

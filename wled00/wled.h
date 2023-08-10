@@ -8,7 +8,7 @@
  */
 
 // version code in format yymmddb (b = daily build)
-#define VERSION 2304211
+#define VERSION 2308100
 
 //uncomment this if you have a "my_config.h" file you'd like to use
 //#define WLED_USE_MY_CONFIG
@@ -45,6 +45,8 @@
   #define WLED_ENABLE_WEBSOCKETS
 #endif
 
+//#define WLED_DISABLE_ESPNOW      // Removes dependence on esp now 
+
 #define WLED_ENABLE_FS_EDITOR      // enable /edit page for editing FS content. Will also be disabled with OTA lock
 
 // to toggle usb serial debug (un)comment the following line
@@ -63,6 +65,9 @@
 //This is generally a terrible idea, but improves boot success on boards with a 3.3v regulator + cap setup that can't provide 400mA peaks
 //#define WLED_DISABLE_BROWNOUT_DET
 
+// WLED-MM MANDATORY flags
+#define WLEDMM_PROTECT_SERVICE // prevents crashes when effects are drawing while asyncWebServer tries to modify segments at the same time
+
 // Library inclusions.
 #include <Arduino.h>
 #ifdef ESP8266
@@ -74,6 +79,9 @@
   {
   #include <user_interface.h>
   }
+  #ifndef WLED_DISABLE_ESPNOW
+    #include <espnow.h>
+  #endif
 #else // ESP32
   #include <HardwareSerial.h>  // ensure we have the correct "Serial" on new MCUs (depends on ARDUINO_USB_MODE and ARDUINO_USB_CDC_ON_BOOT)
   #include <WiFi.h>
@@ -90,6 +98,10 @@
     #include <LittleFS.h>
   #endif
   #include "esp_task_wdt.h"
+
+  #ifndef WLED_DISABLE_ESPNOW
+    #include <esp_now.h>
+  #endif
 #endif
 #include <Wire.h>
 #include <SPI.h>
@@ -146,11 +158,15 @@
 // The following is a construct to enable code to compile without it.
 // There is a code thet will still not use PSRAM though:
 //    AsyncJsonResponse is a derived class that implements DynamicJsonDocument (AsyncJson-v6.h)
-#if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))
+#if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))         // WLEDMM
 struct PSRAM_Allocator {
   void* allocate(size_t size) {
     if (psramFound()) return ps_malloc(size); // use PSRAM if it exists
     else              return malloc(size);    // fallback
+  }
+  void* reallocate(void* ptr, size_t new_size) {
+    if (psramFound()) return ps_realloc(ptr, new_size); // use PSRAM if it exists
+    else              return realloc(ptr, new_size);    // fallback
   }
   void deallocate(void* pointer) {
     free(pointer);
@@ -174,6 +190,10 @@ using PSRAMDynamicJsonDocument = BasicJsonDocument<PSRAM_Allocator>;
 
 #ifndef CLIENT_PASS
   #define CLIENT_PASS ""
+#endif
+
+#ifndef MDNS_NAME
+  #define MDNS_NAME DEFAULT_MDNS_NAME
 #endif
 
 #if defined(WLED_AP_PASS) && !defined(WLED_AP_SSID)
@@ -287,7 +307,7 @@ WLED_GLOBAL char ntpServerName[33] _INIT("0.wled.pool.ntp.org");   // NTP server
 // WiFi CONFIG (all these can be changed via web UI, no need to set them here)
 WLED_GLOBAL char clientSSID[33] _INIT(CLIENT_SSID);
 WLED_GLOBAL char clientPass[65] _INIT(CLIENT_PASS);
-WLED_GLOBAL char cmDNS[33] _INIT("x");                             // mDNS address (placeholder, is replaced by wledXXXXXX.local)
+WLED_GLOBAL char cmDNS[33] _INIT(MDNS_NAME);                       // mDNS address (*.local, replaced by wledXXXXXX if default is used)
 WLED_GLOBAL char apSSID[33] _INIT("");                             // AP off by default (unless setup)
 WLED_GLOBAL byte apChannel _INIT(1);                               // 2.4GHz WiFi AP channel (1-13)
 WLED_GLOBAL byte apHide    _INIT(0);                               // hidden AP SSID
@@ -319,7 +339,8 @@ WLED_GLOBAL byte bootPreset   _INIT(0);                   // save preset to load
 WLED_GLOBAL bool autoSegments    _INIT(false);
 WLED_GLOBAL bool correctWB       _INIT(false); // CCT color correction of RGB color
 WLED_GLOBAL bool cctFromRgb      _INIT(false); // CCT is calculated from RGB instead of using seg.cct
-WLED_GLOBAL bool gammaCorrectCol _INIT(true ); // use gamma correction on colors
+WLED_GLOBAL bool gammaCorrectCol _INIT(true ); // use gamma correction on colors // WLEDMM that's what you would think, but the code tells a different story.
+WLED_GLOBAL bool gammaCorrectPreview _INIT(true); // WLEDMM: revert gamma correction for LiveLeds (screens have their own gamma correction)
 WLED_GLOBAL bool gammaCorrectBri _INIT(false); // use gamma correction on brightness
 WLED_GLOBAL float gammaCorrectVal _INIT(2.8f); // gamma correction value
 
@@ -334,7 +355,7 @@ WLED_GLOBAL byte briS     _INIT(128);                     // default brightness
 WLED_GLOBAL byte nightlightTargetBri _INIT(0);      // brightness after nightlight is over
 WLED_GLOBAL byte nightlightDelayMins _INIT(60);
 WLED_GLOBAL byte nightlightMode      _INIT(NL_MODE_FADE); // See const.h for available modes. Was nightlightFade
-WLED_GLOBAL bool fadeTransition      _INIT(true);   // enable crossfading color transition
+WLED_GLOBAL bool fadeTransition      _INIT(false);  // enable crossfading color transition // WLEDMM disabled - has bugs that will be solved in upstream beta4
 WLED_GLOBAL uint16_t transitionDelay _INIT(750);    // default crossfade duration in ms
 
 WLED_GLOBAL uint_fast16_t briMultiplier _INIT(100);          // % of brightness to set (to limit power, if you set it to 50 and set bri to 255, actual brightness will be 127)
@@ -429,6 +450,7 @@ WLED_GLOBAL char mqttUser[41] _INIT("");                   // optional: username
 WLED_GLOBAL char mqttPass[65] _INIT("");                   // optional: password for MQTT auth
 WLED_GLOBAL char mqttClientID[41] _INIT("");               // override the client ID
 WLED_GLOBAL uint16_t mqttPort _INIT(1883);
+WLED_GLOBAL bool retainMqttMsg _INIT(false);               // retain brightness and color
 #define WLED_MQTT_CONNECTED (mqtt != nullptr && mqtt->connected())
 #else
 #define WLED_MQTT_CONNECTED false
@@ -446,6 +468,12 @@ WLED_GLOBAL bool hueApplyColor _INIT(true);
 #endif
 
 WLED_GLOBAL uint16_t serialBaud _INIT(1152); // serial baud rate, multiply by 100
+
+#ifndef WLED_DISABLE_ESPNOW
+WLED_GLOBAL bool enable_espnow_remote _INIT(false);
+WLED_GLOBAL char linked_remote[13]   _INIT("");
+WLED_GLOBAL char last_signal_src[13]   _INIT("");
+#endif
 
 // Time CONFIG
 WLED_GLOBAL bool ntpEnabled _INIT(false);    // get internet time. Only required if you use clock overlays or time-activated macros
@@ -686,12 +714,15 @@ WLED_GLOBAL bool e131NewData _INIT(false);
 WLED_GLOBAL BusManager busses _INIT(BusManager());
 WLED_GLOBAL WS2812FX strip _INIT(WS2812FX());
 WLED_GLOBAL BusConfig* busConfigs[WLED_MAX_BUSSES+WLED_MIN_VIRTUAL_BUSSES] _INIT({nullptr}); //temporary, to remember values from network callback until after
-WLED_GLOBAL bool doInitBusses _INIT(false);
-WLED_GLOBAL bool loadLedmap _INIT(false); //WLEDMM use as bool and use loadedLedmap for Nr
-WLED_GLOBAL uint8_t loadedLedmap _INIT(0); //WLEDMM default 0
+// WLEDMM a few "poor man's" mutal exclusion (mutex) flags, because there are not mutex objects on 8266.
+WLED_GLOBAL volatile bool doInitBusses _INIT(false);        // WLEDMM "volatile" added - needed as we want to sync parallel tasks
+WLED_GLOBAL volatile bool loadLedmap _INIT(false);          // WLEDMM use as bool and use loadedLedmap for Nr
+WLED_GLOBAL volatile uint8_t loadedLedmap _INIT(0);         // WLEDMM default 0
+WLED_GLOBAL volatile bool suspendStripService _INIT(false); // WLEDMM temporarily prevent running strip.service, when strip or segments are "under update" and inconsistent
 #ifndef ESP8266
 WLED_GLOBAL char  *ledmapNames[WLED_MAX_LEDMAPS-1] _INIT_N(({nullptr}));
 #endif
+WLED_GLOBAL size_t  ledmapMaxSize _INIT(0); //WLEDMM TroyHack
 #if WLED_MAX_LEDMAPS>16
 WLED_GLOBAL uint32_t ledMaps _INIT(0); // bitfield representation of available ledmaps
 #else

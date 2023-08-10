@@ -20,6 +20,20 @@ static const char *getFileName(bool persist = true) {
   return persist ? "/presets.json" : "/tmp.json";
 }
 
+bool presetsSavePending(void) {  // WLEDMM true if presetToSave, playlistSave or saveLedmap
+  if (presetToSave > 0) return(true);
+  if (playlistSave == true) return(true);
+  if (saveLedmap >= 0) return(true);
+  return(false);
+}
+bool presetsActionPending(void) {  // WLEDMM true if presetToApply, presetToSave, playlistSave or saveLedmap
+  if (presetToApply > 0) return(true);
+  if (presetToSave > 0) return(true);
+  if (playlistSave == true) return(true);
+  if (saveLedmap >= 0) return(true);
+  return(false);
+}
+
 static void doSaveState() {
   bool persist = (presetToSave < 251);
   const char *filename = getFileName(persist);
@@ -52,7 +66,7 @@ static void doSaveState() {
     size_t len = measureJson(*fileDoc) + 1;
     DEBUG_PRINTLN(len);
     // if possible use SPI RAM on ESP32
-    #if defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))
+    #if defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))        // WLEDMM
     if (psramFound())
       tmpRAMbuffer = (char*) ps_malloc(len);
     else
@@ -118,6 +132,15 @@ bool applyPreset(byte index, byte callMode)
   presetToApply = index;
   callModeToApply = callMode;
   return true;
+}
+
+// apply preset or fallback to a effect and palette if it doesn't exist
+void applyPresetWithFallback(uint8_t index, uint8_t callMode, uint8_t effectID, uint8_t paletteID)
+{
+  applyPreset(index, callMode);
+  //these two will be overwritten if preset exists in handlePresets()
+  effectCurrent = effectID;
+  effectPalette = paletteID;
 }
 
 void handlePresets()
@@ -231,7 +254,8 @@ void handlePresets()
     changePreset = true;
   } else {
     if (!fdo["seg"].isNull() || !fdo["on"].isNull() || !fdo["bri"].isNull() || !fdo["nl"].isNull() || !fdo["ps"].isNull() || !fdo[F("playlist")].isNull()) changePreset = true;
-    fdo.remove("ps"); //remove load request for presets to prevent recursive crash
+    if (!(tmpMode == CALL_MODE_BUTTON_PRESET && fdo["ps"].is<const char *>() && strchr(fdo["ps"].as<const char *>(),'~') != strrchr(fdo["ps"].as<const char *>(),'~')))
+      fdo.remove("ps"); // remove load request for presets to prevent recursive crash (if not called by button and contains preset cycling string "1~5~")
     deserializeState(fdo, CALL_MODE_NO_NOTIFY, tmpPreset); // may change presetToApply by calling applyPreset()
   }
   if (!errorFlag && tmpPreset < 255 && changePreset) presetCycCurr = currentPreset = tmpPreset;

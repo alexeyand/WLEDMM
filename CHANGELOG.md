@@ -1,5 +1,41 @@
 ## WLED changelog
 
+#### Build 2306020
+
+-   Support for segment sets (PR #3171)
+-   Reduce sound simulation modes to 2 to facilitiate segment sets
+-   Trigger button immediately on press if all configured presets are the same (PR #3226)
+-   Changes for allowing Alexa to change light color to White when auto-calculating from RGB (PR #3211)
+
+#### Build 2305280
+-   DDP protocol update (#3193)
+-   added PCF8574 I2C port expander support for Multi relay usermod
+-   MQTT multipacket (fragmented) message fix
+-   added option to retain MQTT brightness and color messages
+-   new ethernet board: @srg74 Ethernet Shield
+-   new 2D effects: Soap (#3184) & Octopus & Waving cell (credit @St3P40 https://github.com/80Stepko08)
+-   various fixes and enhancements
+
+#### Build 2305090
+-   new ethernet board: @Wladi ABC! WLED Eth
+-   Battery usermod voltage calculation (#3116)
+-   custom palette editor (#3164)
+-   improvements in Dancing Shadows and Tartan effects
+-   UCS389x support
+-   switched to NeoPixelBus 2.7.5 (replaced NeoPixelBrightnessBus with NeoPixelBusLg)
+-   SPI bus clock selection (for LEDs) (#3173)
+-   DMX mode preset fix (#3134)
+-   iOS fix for scroll (#3182)
+-   Wordclock "Norddeutsch" fix (#3161)
+-   various fixes and enhancements
+
+#### Build 2304090
+-   updated Arduino ESP8266 core to 4.1.0 (newer compiler)
+-   updated NeoPixelBus to 2.7.3 (with support for UCS890x chipset)
+-   better support for ESP32-C3, ESP32-S2 and ESP32-S3 (Arduino ESP32 core 5.2.0)
+-   iPad/tablet with 1024 pixels width in landscape orientation PC mode support (#3153)
+-   fix for Pixel Art Converter (#3155)
+
 #### Build 2303240
 -   Peek scaling of large 2D matrices
 -   Added 0D (1 pixel) metadata for effects & enhance 0D (analog strip) UI handling

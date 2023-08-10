@@ -12,6 +12,7 @@
 #define DEFAULT_AP_SSID     "WLED-AP"
 #define DEFAULT_AP_PASS     "wled1234"
 #define DEFAULT_OTA_PASS    "wledota"
+#define DEFAULT_MDNS_NAME   "x"
 
 //increase if you need more
 #ifndef WLED_MAX_USERMODS
@@ -43,8 +44,13 @@
       #define WLED_MIN_VIRTUAL_BUSSES 4
     #else
       #if defined(USERMOD_AUDIOREACTIVE)      // requested by @softhack007 https://github.com/blazoncek/WLED/issues/33
+      #ifndef WLEDMM_FASTPATH
         #define WLED_MAX_BUSSES 8
         #define WLED_MIN_VIRTUAL_BUSSES 2
+      #else
+        #define WLED_MAX_BUSSES 9           // WLEDMM I2S#1 is availeable for LEDs
+        #define WLED_MIN_VIRTUAL_BUSSES 1
+      #endif
       #else
         #define WLED_MAX_BUSSES 10
         #define WLED_MIN_VIRTUAL_BUSSES 0
@@ -133,10 +139,11 @@
 #define USERMOD_ID_SHT                   39     //Usermod "usermod_sht.h
 #define USERMOD_ID_KLIPPER               40     // Usermod Klipper percentage
 //WLEDMM
+#define USERMOD_ID_MCUTEMP               89     //Usermod "usermod_v2_artifx.h"
 #define USERMOD_ID_ARTIFX                90     //Usermod "usermod_v2_artifx.h"
 #define USERMOD_ID_WEATHER               91     //Usermod "usermod_v2_weather.h"
 #define USERMOD_ID_GAMES                 92     //Usermod "usermod_v2_games.h"
-#define USERMOD_ID_FASTLED               93     //Usermod "usermod_v2_fastled.h"
+#define USERMOD_ID_ANIMARTRIX               93     //Usermod "usermod_v2_animartrix.h"
 
 //Access point behavior
 #define AP_BEHAVIOR_BOOT_NO_CONN          0     //Open AP when no connection after boot
@@ -221,6 +228,8 @@
 #define TYPE_GS8608              23            //same driver as WS2812, but will require signal 2x per second (else displays test pattern)
 #define TYPE_WS2811_400KHZ       24            //half-speed WS2812 protocol, used by very old WS2811 units
 #define TYPE_TM1829              25
+#define TYPE_UCS8903             26
+#define TYPE_UCS8904             29
 #define TYPE_SK6812_RGBW         30
 #define TYPE_TM1814              31
 //"Analog" types (PWM) (32-47)
@@ -269,7 +278,7 @@
 #define BTN_TYPE_ANALOG_INVERTED  8
 
 //Ethernet board types
-#define WLED_NUM_ETH_TYPES        9
+#define WLED_NUM_ETH_TYPES       11
 
 #define WLED_ETH_NONE             0
 #define WLED_ETH_WT32_ETH01       1
@@ -278,6 +287,10 @@
 #define WLED_ETH_QUINLED          4
 #define WLED_ETH_TWILIGHTLORD     5
 #define WLED_ETH_ESP32DEUX        6
+#define WLED_ETH_ESP32ETHKITVE    7
+#define WLED_ETH_QUINLED_OCTA     8
+#define WLED_ETH_ABCWLEDV43ETH    9
+#define WLED_ETH_SERG74          10
 
 //Hue error codes
 #define HUE_ERROR_INACTIVE        0
@@ -369,7 +382,7 @@
 #ifdef ESP8266
 #define SETTINGS_STACK_BUF_SIZE 2048
 #else
-#define SETTINGS_STACK_BUF_SIZE 3712   // WLEDMM added 512 bytes of margin (was 3096)
+#define SETTINGS_STACK_BUF_SIZE 3776   // WLEDMM added 680 bytes of margin (was 3096) for audioreactive UI
 #endif
 
 #ifdef WLED_USE_ETHERNET
@@ -411,7 +424,7 @@
   #if defined(ARDUINO_ARCH_ESP32S2) || defined(ARDUINO_ARCH_ESP32C3)
   #define JSON_BUFFER_SIZE 48000 // WLEDMM
   #else
-  #define JSON_BUFFER_SIZE 60000 // WLEDMM
+  #define JSON_BUFFER_SIZE 56000 // WLEDMM (was 60000) slightly reduced to avoid build error "region dram0_0_seg overflowed"
   #endif
  #else
   #define JSON_BUFFER_SIZE 24576

@@ -345,6 +345,14 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
     sappend('v',SET_F("AC"),apChannel);
     sappend('c',SET_F("WS"),noWifiSleep);
 
+    #ifndef WLED_DISABLE_ESPNOW
+    sappend('c',SET_F("RE"),enable_espnow_remote);
+    sappends('s',SET_F("RMAC"),linked_remote);
+    #else
+    //hide remote settings if not compiled
+    oappend(SET_F("document.getElementById('remd').style.display='none';"));
+    #endif
+
     #ifdef WLED_USE_ETHERNET
     sappend('v',SET_F("ETH"),ethernetType);
     #else
@@ -377,6 +385,19 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
     {
       sappends('m',SET_F("(\"sip\")[1]"),(char*)F("Not active"));
     }
+
+    #ifndef WLED_DISABLE_ESPNOW
+    if (last_signal_src[0] != 0) //Have seen an ESP-NOW Remote
+    {
+      sappends('m',SET_F("(\"rlid\")[0]"),last_signal_src);
+    } else if (!enable_espnow_remote)
+    {
+      sappends('m',SET_F("(\"rlid\")[0]"),(char*)F("(Enable remote to listen)"));
+    } else 
+    {
+      sappends('m',SET_F("(\"rlid\")[0]"),(char*)F("None"));
+    }
+    #endif
   }
 
   if (subPage == 2)
@@ -415,6 +436,7 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
       char rf[4] = "RF"; rf[2] = 48+s; rf[3] = 0; //off refresh
       char aw[4] = "AW"; aw[2] = 48+s; aw[3] = 0; //auto white mode
       char wo[4] = "WO"; wo[2] = 48+s; wo[3] = 0; //swap channels
+      char sp[4] = "SP"; sp[2] = 48+s; sp[3] = 0; //bus clock speed
       oappend(SET_F("addLEDs(1);"));
       uint8_t pins[5];
       uint8_t nPins = bus->getPins(pins);
@@ -431,6 +453,27 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
       sappend('c',rf,bus->isOffRefreshRequired());
       sappend('v',aw,bus->getAutoWhiteMode());
       sappend('v',wo,bus->getColorOrder() >> 4);
+      uint16_t speed = bus->getFrequency();
+      if (bus->getType() > TYPE_ONOFF && bus->getType() < 48) {
+        switch (speed) {
+          case WLED_PWM_FREQ/3 : speed = 0; break;
+          case WLED_PWM_FREQ/2 : speed = 1; break;
+          default:
+          case WLED_PWM_FREQ   : speed = 2; break;
+          case WLED_PWM_FREQ*2 : speed = 3; break;
+          case WLED_PWM_FREQ*3 : speed = 4; break;
+        }
+      } else {
+        switch (speed) {
+          case  1000 : speed = 0; break;
+          case  2000 : speed = 1; break;
+          default:
+          case  5000 : speed = 2; break;
+          case 10000 : speed = 3; break;
+          case 20000 : speed = 4; break;
+        }
+      }
+      sappend('v',sp,speed);
     }
     sappend('v',SET_F("MA"),strip.ablMilliampsMax);
     sappend('v',SET_F("LA"),strip.milliampsPerLed);
@@ -462,6 +505,7 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
 
     sappend('c',SET_F("GB"),gammaCorrectBri);
     sappend('c',SET_F("GC"),gammaCorrectCol);
+    sappend('c',SET_F("GCP"),gammaCorrectPreview);   // WLEDMM
     dtostrf(gammaCorrectVal,3,1,nS); sappends('s',SET_F("GV"),nS);
     sappend('c',SET_F("TF"),fadeTransition);
     sappend('v',SET_F("TD"),transitionDelayDefault);
@@ -570,6 +614,7 @@ void getSettingsJS(AsyncWebServerRequest* request, byte subPage, char* dest) //W
     sappends('s',"MD",mqttDeviceTopic);
     sappends('s',SET_F("MG"),mqttGroupTopic);
     sappend('c',SET_F("BM"),buttonPublishMqtt);
+    sappend('c',SET_F("RT"),retainMqttMsg);
     #else
     oappend(SET_F("toggle('MQTT');"));    // hide MQTT settings
     #endif

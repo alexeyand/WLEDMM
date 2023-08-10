@@ -68,7 +68,7 @@ void toggleOnOff()
 
 
 //scales the brightness with the briMultiplier factor
-byte scaledBri(byte in)
+IRAM_ATTR_YN byte scaledBri(byte in)  // WLEDMM added IRAM_ATTR_YN
 {
   if (briMultiplier == 100) return(in); // WLEDMM shortcut
   uint_fast16_t val = ((uint_fast16_t)in*(uint_fast16_t)briMultiplier)/100; // WLEDMM
@@ -293,7 +293,7 @@ void handleNightlight()
 }
 
 //utility for FastLED to use our custom timer
-uint32_t get_millisecond_timer()
+uint32_t __attribute__((pure)) get_millisecond_timer() // WLEDMM attribute pure = does not write other momory
 {
   return strip.now;
 }

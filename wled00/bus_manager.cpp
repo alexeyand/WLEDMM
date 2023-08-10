@@ -9,6 +9,8 @@
 #include "bus_wrapper.h"
 #include "bus_manager.h"
 
+//WLEDMM: #define DEBUGOUT(x) netDebugEnabled?NetDebug.print(x):Serial.print(x) not supported in this file as netDebugEnabled not in scope
+#if 0
 //colors.cpp
 uint32_t colorBalanceFromKelvin(uint16_t kelvin, uint32_t rgb);
 uint16_t approximateKelvinFromRGB(uint32_t rgb);
@@ -18,7 +20,6 @@ void colorRGBtoRGBW(byte* rgb);
 uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, byte *buffer, uint8_t bri=255, bool isRGBW=false);
 
 // enable additional debug output
-//WLEDMM: #define DEBUGOUT(x) netDebugEnabled?NetDebug.print(x):Serial.print(x) not supported in this file as netDebugEnabled not in scope
 #if defined(WLED_DEBUG_HOST)
   #include "net_debug.h"
   #define DEBUGOUT NetDebug
@@ -37,6 +38,10 @@ uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, byte 
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTF(x...)
+#endif
+#else
+ // WLEDMM use wled.h
+#include "wled.h"
 #endif
 
 //color mangling macros
@@ -96,12 +101,14 @@ uint32_t Bus::autoWhiteCalc(uint32_t c) {
 BusDigital::BusDigital(BusConfig &bc, uint8_t nr, const ColorOrderMap &com) : Bus(bc.type, bc.start, bc.autoWhite), _colorOrderMap(com) {
   if (!IS_DIGITAL(bc.type) || !bc.count) return;
   if (!pinManager.allocatePin(bc.pins[0], true, PinOwner::BusDigital)) return;
+  _frequencykHz = 0U;
   _pins[0] = bc.pins[0];
   if (IS_2PIN(bc.type)) {
     if (!pinManager.allocatePin(bc.pins[1], true, PinOwner::BusDigital)) {
     cleanup(); return;
     }
     _pins[1] = bc.pins[1];
+    _frequencykHz = bc.frequency ? bc.frequency : 2000U; // 2MHz clock if undefined
   }
   reversed = bc.reversed;
   _needsRefresh = bc.refreshReq || bc.type == TYPE_TM1814;
@@ -111,10 +118,14 @@ BusDigital::BusDigital(BusConfig &bc, uint8_t nr, const ColorOrderMap &com) : Bu
   if (_iType == I_NONE) return;
   uint16_t lenToCreate = _len;
   if (bc.type == TYPE_WS2812_1CH_X3) lenToCreate = NUM_ICS_WS2812_1CH_3X(_len); // only needs a third of "RGB" LEDs for NeoPixelBus 
-  _busPtr = PolyBus::create(_iType, _pins, lenToCreate, nr);
+  _busPtr = PolyBus::create(_iType, _pins, lenToCreate, nr, _frequencykHz);
   _valid = (_busPtr != nullptr);
   _colorOrder = bc.colorOrder;
-  DEBUG_PRINTF("%successfully inited strip %u (len %u) with type %u and pins %u,%u (itype %u)\n", _valid?"S":"Uns", nr, _len, bc.type, _pins[0],_pins[1],_iType);
+  if (_pins[1] != 255) {  // WLEDMM USER_PRINTF
+    USER_PRINTF("%successfully inited strip %u (len %u) with type %u and pins %u,%u (itype %u)\n", _valid?"S":"Uns", nr, _len, bc.type, _pins[0],_pins[1],_iType);
+  } else {
+    USER_PRINTF("%successfully inited strip %u (len %u) with type %u and pin %u (itype %u)\n", _valid?"S":"Uns", nr, _len, bc.type, _pins[0],_iType);
+  }
 }
 
 void BusDigital::show() {
@@ -125,15 +136,15 @@ bool BusDigital::canShow() {
   return PolyBus::canShow(_busPtr, _iType);
 }
 
-void BusDigital::setBrightness(uint8_t b) {
+void BusDigital::setBrightness(uint8_t b, bool immediate) {
   //Fix for turning off onboard LED breaking bus
   #ifdef LED_BUILTIN
   if (_bri == 0 && b > 0) {
     if (_pins[0] == LED_BUILTIN || _pins[1] == LED_BUILTIN) PolyBus::begin(_busPtr, _iType, _pins);
   }
   #endif
-  Bus::setBrightness(b);
-  PolyBus::setBrightness(_busPtr, _iType, b);
+  Bus::setBrightness(b, immediate);
+  PolyBus::setBrightness(_busPtr, _iType, b, immediate);
 }
 
 //If LEDs are skipped, it is possible to use the first as a status LED.
@@ -213,10 +224,11 @@ BusPwm::BusPwm(BusConfig &bc) : Bus(bc.type, bc.start, bc.autoWhite) {
   _valid = false;
   if (!IS_PWM(bc.type)) return;
   uint8_t numPins = NUM_PWM_PINS(bc.type);
+  _frequency = bc.frequency ? bc.frequency : WLED_PWM_FREQ;
 
   #ifdef ESP8266
   analogWriteRange(255);  //same range as one RGB channel
-  analogWriteFreq(WLED_PWM_FREQ);
+  analogWriteFreq(_frequency);
   #else
   _ledcStart = pinManager.allocateLedc(numPins);
   if (_ledcStart == 255) { //no more free LEDC channels
@@ -233,7 +245,7 @@ BusPwm::BusPwm(BusConfig &bc) : Bus(bc.type, bc.start, bc.autoWhite) {
     #ifdef ESP8266
     pinMode(_pins[i], OUTPUT);
     #else
-    ledcSetup(_ledcStart + i, WLED_PWM_FREQ, 8);
+    ledcSetup(_ledcStart + i, _frequency, 8);
     ledcAttachPin(_pins[i], _ledcStart + i);
     #endif
   }
@@ -451,21 +463,21 @@ void BusNetwork::cleanup() {
 uint32_t BusManager::memUsage(BusConfig &bc) {
   uint8_t type = bc.type;
   uint16_t len = bc.count + bc.skipAmount;
-  if (type > 15 && type < 32) {
+  if (type > 15 && type < 32) { // digital types
+    if (type == TYPE_UCS8903 || type == TYPE_UCS8904) len *= 2; // 16-bit LEDs
     #ifdef ESP8266
       if (bc.pins[0] == 3) { //8266 DMA uses 5x the mem
-        if (type > 29) return len*20; //RGBW
+        if (type > 28) return len*20; //RGBW
         return len*15;
       }
-      if (type > 29) return len*4; //RGBW
+      if (type > 28) return len*4; //RGBW
       return len*3;
     #else //ESP32 RMT uses double buffer?
-      if (type > 29) return len*8; //RGBW
+      if (type > 28) return len*8; //RGBW
       return len*6;
     #endif
   }
   if (type > 31 && type < 48)   return 5;
-  if (type == 44 || type == 45) return len*4; //RGBW
   return len*3; //RGB
 }
 
@@ -505,17 +517,17 @@ void BusManager::setStatusPixel(uint32_t c) {
 }
 
 void IRAM_ATTR BusManager::setPixelColor(uint16_t pix, uint32_t c, int16_t cct) {
-  for (uint8_t i = 0; i < numBusses; i++) {
+  for (uint_fast8_t i = 0; i < numBusses; i++) {    // WLEDMM use fast native types
     Bus* b = busses[i];
-    uint16_t bstart = b->getStart();
+    uint_fast16_t bstart = b->getStart();
     if (pix < bstart || pix >= bstart + b->getLength()) continue;
     busses[i]->setPixelColor(pix - bstart, c);
   }
 }
 
-void BusManager::setBrightness(uint8_t b) {
+void BusManager::setBrightness(uint8_t b, bool immediate) {
   for (uint8_t i = 0; i < numBusses; i++) {
-    busses[i]->setBrightness(b);
+    busses[i]->setBrightness(b, immediate);
   }
 }
 
@@ -528,10 +540,10 @@ void BusManager::setSegmentCCT(int16_t cct, bool allowWBCorrection) {
   Bus::setCCT(cct);
 }
 
-uint32_t BusManager::getPixelColor(uint16_t pix) {
-  for (uint8_t i = 0; i < numBusses; i++) {
+uint32_t BusManager::getPixelColor(uint_fast16_t pix) {     // WLEDMM use fast native types
+  for (uint_fast8_t i = 0; i < numBusses; i++) {
     Bus* b = busses[i];
-    uint16_t bstart = b->getStart();
+    uint_fast16_t bstart = b->getStart();
     if (pix < bstart || pix >= bstart + b->getLength()) continue;
     return b->getPixelColor(pix - bstart);
   }
@@ -552,8 +564,8 @@ Bus* BusManager::getBus(uint8_t busNr) {
 
 //semi-duplicate of strip.getLengthTotal() (though that just returns strip._length, calculated in finalizeInit())
 uint16_t BusManager::getTotalLength() {
-  uint16_t len = 0;
-  for (uint8_t i=0; i<numBusses; i++) len += busses[i]->getLength();
+  uint_fast16_t len = 0;
+  for (uint_fast8_t i=0; i<numBusses; i++) len += busses[i]->getLength();      // WLEDMM use fast native types
   return len;
 }
 

@@ -5,11 +5,15 @@
  */
 #ifdef WLED_ENABLE_WEBSOCKETS
 
-uint16_t wsLiveClientId = 0;
-unsigned long wsLastLiveTime = 0;
+static volatile uint16_t wsLiveClientId = 0;        // WLEDMM added "static"
+static volatile unsigned long wsLastLiveTime = 0;   // WLEDMM
 //uint8_t* wsFrameBuffer = nullptr;
 
-#define WS_LIVE_INTERVAL 40
+#if !defined(ARDUINO_ARCH_ESP32) || defined(WLEDMM_FASTPATH)   // WLEDMM
+#define WS_LIVE_INTERVAL 120
+#else
+#define WS_LIVE_INTERVAL 80
+#endif
 
 void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len)
 {
@@ -22,6 +26,7 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
     if (client->id() == wsLiveClientId) wsLiveClientId = 0;
     DEBUG_PRINTLN(F("WS client disconnected."));
   } else if(type == WS_EVT_DATA){
+    DEBUG_PRINTLN(F("WS event data."));
     // data packet
     AwsFrameInfo * info = (AwsFrameInfo*)arg;
     if(info->final && info->index == 0 && info->len == len){
@@ -86,7 +91,7 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
     }
   } else if(type == WS_EVT_ERROR){
     //error was received from the other end
-    DEBUG_PRINTLN(F("WS error."));
+    USER_PRINTLN(F("WS error."));
 
   } else if(type == WS_EVT_PONG){
     //pong message was received (in response to a ping request maybe)
@@ -97,6 +102,7 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
 
 void sendDataWs(AsyncWebSocketClient * client)
 {
+  DEBUG_PRINTF("sendDataWs\n");
   if (!ws.count()) return;
   AsyncWebSocketMessageBuffer * buffer;
 
@@ -110,9 +116,9 @@ void sendDataWs(AsyncWebSocketClient * client)
   size_t len = measureJson(doc);
   DEBUG_PRINTF("JSON buffer size: %u for WS request (%u).\n", doc.memoryUsage(), len);
 
-  size_t heap1 = ESP.getFreeHeap();
-  DEBUG_PRINT(F("heap ")); DEBUG_PRINTLN(ESP.getFreeHeap());
   #ifdef ESP8266
+  size_t heap1 = ESP.getFreeHeap();  // WLEDMM moved into 8266 specific section
+  DEBUG_PRINT(F("heap ")); DEBUG_PRINTLN(ESP.getFreeHeap());
   if (len>heap1) {
     DEBUG_PRINTLN(F("Out of memory (WS)!"));
     return;
@@ -120,16 +126,28 @@ void sendDataWs(AsyncWebSocketClient * client)
   #else
     // DEBUG_PRINTF("%s min free stack %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL)); //WLEDMM
   #endif
+  if (len < 1) return; // WLEDMM do not allocate 0 size buffer
+  
+  // WLEDMM use exceptions to catch out-of-memory errors
+  #if __cpp_exceptions
+  try{
+    buffer = ws.makeBuffer(len); // will not allocate correct memory sometimes on ESP8266
+  } catch(...) {
+    buffer = nullptr;
+  }
+  #else
   buffer = ws.makeBuffer(len); // will not allocate correct memory sometimes on ESP8266
+  #endif
   #ifdef ESP8266
   size_t heap2 = ESP.getFreeHeap();
   DEBUG_PRINT(F("heap ")); DEBUG_PRINTLN(ESP.getFreeHeap());
   #else
+  size_t heap1 = len+16; // WLEDMM
   size_t heap2 = 0; // ESP32 variants do not have the same issue and will work without checking heap allocation
   #endif
   if (!buffer || heap1-heap2<len) {
     releaseJSONBufferLock();
-    DEBUG_PRINTLN(F("WS buffer allocation failed."));
+    USER_PRINTLN(F("WS buffer allocation failed."));
     ws.closeAll(1013); //code 1013 = temporary overload, try again later
     ws.cleanupClients(0); //disconnect all clients to release memory
     ws._cleanBuffers();
@@ -153,52 +171,98 @@ void sendDataWs(AsyncWebSocketClient * client)
   releaseJSONBufferLock();
 }
 
-bool sendLiveLedsWs(uint32_t wsClient)
+// WLEDMM function to recover full-brigh pixel (based on code from upstream alt-buffer, which is based on code from NeoPixelBrightnessBus)
+static uint32_t restoreColorLossy(uint32_t c, uint_fast8_t _restaurationBri) {
+  if (_restaurationBri == 255) return c;
+  uint8_t* chan = (uint8_t*) &c;
+  for (uint_fast8_t i=0; i<4; i++) {
+    uint_fast16_t val = chan[i];
+    chan[i] = ((val << 8) + _restaurationBri) / (_restaurationBri + 1); //adding _bri slighly improves recovery / stops degradation on re-scale
+  }
+  return c;
+}
+
+static bool sendLiveLedsWs(uint32_t wsClient)  // WLEDMM added "static"
 {
   AsyncWebSocketClient * wsc = ws.client(wsClient);
   if (!wsc || wsc->queueLength() > 0) return false; //only send if queue free
 
   size_t used = strip.getLengthTotal();
 #ifdef ESP8266
-  const size_t MAX_LIVE_LEDS_WS = 256U;
+  constexpr size_t MAX_LIVE_LEDS_WS = 256U;
 #else
-  const size_t MAX_LIVE_LEDS_WS = 4096U;  //WLEDMM use 4096 as max matrix size
+  constexpr size_t MAX_LIVE_LEDS_WS = 4096U;  //WLEDMM use 4096 as max matrix size
 #endif
   size_t n = ((used -1)/MAX_LIVE_LEDS_WS) +1; //only serve every n'th LED if count over MAX_LIVE_LEDS_WS
   size_t pos = (strip.isMatrix ? 4 : 2);
   size_t bufSize = pos + (used/n)*3;
   //WLEDMM: no skipLines
 
-  AsyncWebSocketMessageBuffer * wsBuf = ws.makeBuffer(bufSize);
+  if ((bufSize < 1) || (used < 1)) return(false); // WLEDMM should not happen
+  //AsyncWebSocketMessageBuffer * wsBuf = ws.makeBuffer(bufSize);
+  // WLEDMM protect against exceptions due to low memory 
+  AsyncWebSocketMessageBuffer * wsBuf = nullptr;
+#if __cpp_exceptions
+  try{
+#endif
+    wsBuf = ws.makeBuffer(bufSize);
+#if __cpp_exceptions
+  } catch(...) {
+#else
+  if (wsBuf == nullptr) {    // 8266 does not support exceptions
+#endif
+    wsBuf = nullptr;
+    USER_PRINTLN(F("WS buffer allocation failed."));
+    //ws.closeAll(1013); //code 1013 = temporary overload, try again later
+    //ws.cleanupClients(0); //disconnect all clients to release memory
+    ws._cleanBuffers();
+  }
+  
   if (!wsBuf) return false; //out of memory
   uint8_t* buffer = wsBuf->get();
+  if (!buffer) return false; //out of memory
+
+  wsBuf->lock();  // protect buffer from being cleaned by another WS instance
   buffer[0] = 'L';
   buffer[1] = 1; //version
 #ifndef WLED_DISABLE_2D
   if (strip.isMatrix) {
     buffer[1] = 2; //version
-    buffer[2] = Segment::maxWidth;
-    buffer[3] = Segment::maxHeight;
+    buffer[2] = min(Segment::maxWidth, (uint16_t) 255); // WLEDMM prevent overflow on buffer type uint8_t
+    buffer[3] = min(Segment::maxHeight, (uint16_t) 255);
     //WLEDMM: no skipLines
   }
 #endif
 
+  uint8_t stripBrightness = strip.getBrightness();
   for (size_t i = 0; pos < bufSize -2; i += n)
   {
   //WLEDMM: no skipLines
-    uint32_t c = strip.getPixelColor(i);
-    buffer[pos++] = qadd8(W(c), R(c)); //R, add white channel to RGB channels as a simple RGBW -> RGB map
-    buffer[pos++] = qadd8(W(c), G(c)); //G
-    buffer[pos++] = qadd8(W(c), B(c)); //B
+    uint32_t c = restoreColorLossy(strip.getPixelColor(i), stripBrightness); // WLEDMM full bright preview - does _not_ recover ABL reductions
+    // WLEDMM begin: preview with color gamma correction
+    if (gammaCorrectPreview) {
+      uint8_t w = W(c);  // not sure why, but it looks better if using "white" without corrections
+      buffer[pos++] = qadd8(w, unGamma8(R(c))); //R, add white channel to RGB channels as a simple RGBW -> RGB map
+      buffer[pos++] = qadd8(w, unGamma8(G(c))); //G
+      buffer[pos++] = qadd8(w, unGamma8(B(c))); //B
+    } else {
+    // WLEDMM end
+      uint8_t w = W(c);  // WLEDMM small optimization
+      buffer[pos++] = qadd8(w, R(c)); //R, add white channel to RGB channels as a simple RGBW -> RGB map
+      buffer[pos++] = qadd8(w, G(c)); //G
+      buffer[pos++] = qadd8(w, B(c)); //B
+    }
   }
 
   wsc->binary(wsBuf);
+  wsBuf->unlock();     // un-protect buffer
+  ws._cleanBuffers();  // cleans up if the message is not added to any clients.
   return true;
 }
 
 void handleWs()
 {
-  if (millis() - wsLastLiveTime > WS_LIVE_INTERVAL)
+  if (millis() - wsLastLiveTime > max((strip.getLengthTotal()/20), WS_LIVE_INTERVAL)) //WLEDMM dynamic nr of peek frames per second
   {
     #ifdef ESP8266
     ws.cleanupClients(3);

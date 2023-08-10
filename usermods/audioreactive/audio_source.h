@@ -72,7 +72,7 @@
  * if you want to receive two channels, one is the actual data from microphone and another channel is suppose to receive 0, it's different data in two channels, you need to choose I2S_CHANNEL_FMT_RIGHT_LEFT in this case.
 */
 
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)) && (ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(4, 4, 3))
+#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)) && (ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(4, 4, 4))
 // espressif bug: only_left has no sound, left and right are swapped 
 // https://github.com/espressif/esp-idf/issues/9635  I2S mic not working since 4.4 (IDFGH-8138)
 // https://github.com/espressif/esp-idf/issues/8538  I2S channel selection issue? (IDFGH-6918)
@@ -105,6 +105,9 @@
 
 #endif
 
+
+// max number of samples for a single i2s_read --> size of global buffer.
+#define I2S_SAMPLES_MAX 512  // same as samplesFFT
 
 /* Interface class
    AudioSource serves as base class for all microphone types
@@ -162,6 +165,7 @@ class AudioSource {
     bool _initialized;              // Gets set to true if initialization is successful
     bool _i2sMaster;                // when false, ESP32 will be in I2S SLAVE mode (for devices that only operate in MASTER mode). Only workds in newer IDF >= 4.4.x
     float _sampleScale;             // pre-scaling factor for I2S samples
+    I2S_datatype newSampleBuffer[I2S_SAMPLES_MAX+4] = { 0 }; // global buffer for i2s_read
 };
 
 /* Basic I2S microphone source
@@ -180,8 +184,13 @@ class I2SSource : public AudioSource {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0)
         .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_STAND_I2S),
         //.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+#ifdef WLEDMM_FASTPATH
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL2|ESP_INTR_FLAG_LEVEL3,  // seems to reduce noise
+        .dma_buf_count = 28,                                            // 160ms buffer (128 * dma_buf_count / sampleRate)
+#else
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL2,
         .dma_buf_count = 8,
+#endif
         .dma_buf_len = _blockSize,
         .use_apll = 0,
         //.fixed_mclk = 0,
@@ -345,17 +354,20 @@ class I2SSource : public AudioSource {
       if (_initialized) {
         esp_err_t err;
         size_t bytes_read = 0;        /* Counter variable to check if we actually got enough data */
-        I2S_datatype newSamples[num_samples]; /* Intermediary sample storage */
 
-        err = i2s_read(I2S_NUM_0, (void *)newSamples, sizeof(newSamples), &bytes_read, portMAX_DELAY);
+        memset(buffer, 0, sizeof(float) * num_samples);  // clear output buffer
+        I2S_datatype *newSamples = newSampleBuffer; // use global input buffer
+        if (num_samples > I2S_SAMPLES_MAX) num_samples = I2S_SAMPLES_MAX; // protect the buffer from overflow
+
+        err = i2s_read(I2S_NUM_0, (void *)newSamples, num_samples * sizeof(I2S_datatype), &bytes_read, portMAX_DELAY);
         if (err != ESP_OK) {
           DEBUGSR_PRINTF("Failed to get samples: %d\n", err);
           return;
         }
 
         // For correct operation, we need to read exactly sizeof(samples) bytes from i2s
-        if (bytes_read != sizeof(newSamples)) {
-          DEBUGSR_PRINTF("Failed to get enough samples: wanted: %d read: %d\n", sizeof(newSamples), bytes_read);
+        if (bytes_read != (num_samples * sizeof(I2S_datatype))) {
+          DEBUGSR_PRINTF("Failed to get enough samples: wanted: %d read: %d\n", num_samples * sizeof(I2S_datatype), bytes_read);
           return;
         }
 
@@ -410,13 +422,6 @@ class I2SSource : public AudioSource {
 */
 class ES7243 : public I2SSource {
   private:
-    // I2C initialization functions for ES7243
-    void _es7243I2cBegin() {
-      bool i2c_initialized = Wire.begin(pin_ES7243_SDA, pin_ES7243_SCL, 100000U);
-      if (i2c_initialized == false) {
-        ERRORSR_PRINTLN(F("AR: ES7243 failed to initialize I2C bus driver."));
-      }
-    }
 
     void _es7243I2cWrite(uint8_t reg, uint8_t val) {
 #ifndef ES7243_ADDR
@@ -434,7 +439,6 @@ class ES7243 : public I2SSource {
     }
 
     void _es7243InitAdc() {
-      _es7243I2cBegin();
       _es7243I2cWrite(0x00, 0x01);
       _es7243I2cWrite(0x06, 0x00);
       _es7243I2cWrite(0x05, 0x1B);
@@ -449,10 +453,15 @@ public:
       _config.channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT;
     };
 
-    void initialize(int8_t sdaPin, int8_t sclPin, int8_t i2swsPin, int8_t i2ssdPin, int8_t i2sckPin, int8_t mclkPin) {
+    void initialize(int8_t i2swsPin, int8_t i2ssdPin, int8_t i2sckPin, int8_t mclkPin) {
       // check that pins are valid
-      if ((sdaPin < 0) || (sclPin < 0)) {
-        ERRORSR_PRINTF("\nAR: invalid ES7243 I2C pins: SDA=%d, SCL=%d\n", sdaPin, sclPin); 
+
+       if ((i2c_sda < 0) || (i2c_scl < 0)) {  // check that global I2C pins are not "undefined"
+        ERRORSR_PRINTF("\nAR: invalid ES7243 global I2C pins: SDA=%d, SCL=%d\n", i2c_sda, i2c_scl); 
+        return;
+      }
+      if (!pinManager.joinWire()) {    // WLEDMM specific: start I2C with globally defined pins
+        ERRORSR_PRINTF("\nAR: failed to join I2C bus with SDA=%d, SCL=%d\n", i2c_sda, i2c_scl); 
         return;
       }
 
@@ -461,32 +470,16 @@ public:
         return;
       }
 
-      // Reserve SDA and SCL pins of the I2C interface
-      PinManagerPinType es7243Pins[2] = { { sdaPin, true }, { sclPin, true } };
-      if (!pinManager.allocateMultiplePins(es7243Pins, 2, PinOwner::HW_I2C)) {
-        pinManager.deallocateMultiplePins(es7243Pins, 2, PinOwner::HW_I2C);
-        ERRORSR_PRINTF("\nAR: Failed to allocate ES7243 I2C pins: SDA=%d, SCL=%d\n", sdaPin, sclPin); 
-        return;
-      }
-
-      pin_ES7243_SDA = sdaPin;
-      pin_ES7243_SCL = sclPin;
-
       // First route mclk, then configure ADC over I2C, then configure I2S
       _es7243InitAdc();
       I2SSource::initialize(i2swsPin, i2ssdPin, i2sckPin, mclkPin);
     }
 
     void deinitialize() {
-      // Release SDA and SCL pins of the I2C interface
-      PinManagerPinType es7243Pins[2] = { { pin_ES7243_SDA, true }, { pin_ES7243_SCL, true } };
-      pinManager.deallocateMultiplePins(es7243Pins, 2, PinOwner::HW_I2C);
       I2SSource::deinitialize();
     }
 
-  private:
-    int8_t pin_ES7243_SDA;
-    int8_t pin_ES7243_SCL;
+
 };
 
 /* ES8388 Sound Modude
@@ -495,13 +488,6 @@ public:
 */
 class ES8388Source : public I2SSource {
   private:
-    // I2C initialization functions for ES8388
-    void _es8388I2cBegin() {
-      bool i2c_initialized = Wire.begin(pin_ES8388_SDA, pin_ES8388_SCL, 100000U);
-      if (i2c_initialized == false) {
-        ERRORSR_PRINTLN(F("AR: ES8388 failed to initialize I2C bus driver."));
-      }
-    }
 
     void _es8388I2cWrite(uint8_t reg, uint8_t val) {
 #ifndef ES8388_ADDR
@@ -520,27 +506,73 @@ class ES8388Source : public I2SSource {
 
     void _es8388InitAdc() {
       // https://dl.radxa.com/rock2/docs/hw/ds/ES8388%20user%20Guide.pdf Section 10.1
+      // http://www.everest-semi.com/pdf/ES8388%20DS.pdf Better spec sheet, more clear. 
       // https://docs.google.com/spreadsheets/d/1CN3MvhkcPVESuxKyx1xRYqfUit5hOdsG45St9BCUm-g/edit#gid=0 generally
       // Sets ADC to around what AudioReactive expects, and loops line-in to line-out/headphone for monitoring.
-      _es8388I2cBegin(); 
-      _es8388I2cWrite(0x08,0x00);       // I2S to slave
-      _es8388I2cWrite(0x02,0xf3);       // Power down DEM and STM
-      _es8388I2cWrite(0x2b,0x80);       // Set same LRCK
-      _es8388I2cWrite(0x00,0x05);       // Set chip to Play & Record Mode
-      _es8388I2cWrite(0x0d,0x02);       // Set MCLK/LRCK ratio to 256
-      _es8388I2cWrite(0x01,0x40);       // Power up analog and lbias
-      _es8388I2cWrite(0x03,0x00);       // Power up ADC, Analog Input, and Mic Bias
-      _es8388I2cWrite(0x0a,0x50);       // Use Lin2/Rin2 for ADC input ("line-in")
-      _es8388I2cWrite(0x09,0x00);       // Select Analog Input PGA Gain for ADC to 0dB (L+R)
-      _es8388I2cWrite(0x10,0b01000000); // Set ADC digital volume attenuation to -32dB (left)
-      _es8388I2cWrite(0x11,0b01000000); // Set ADC digital volume attenuation to -32dB (right)
-      _es8388I2cWrite(0x04,0x0c);       // Turn on LOUT2 and ROUT2 power
-      _es8388I2cWrite(0x02,0b01000000); // Power up DEM and STM and undocumented bit for "turn on line-out amp"
-      _es8388I2cWrite(0x26,0x09);       // Mixer - route LIN2/RIN2 to output
-      _es8388I2cWrite(0x27,0b01010000); // Mixer - route LIN to left mixer, 0dB gain
-      _es8388I2cWrite(0x2a,0b01010000); // Mixer - route RIN to right mixer, 0dB gain
-      _es8388I2cWrite(0x30,0b00011110); // LOUT2VOL - 0 = -45dB, 0b00011110 = +0dB
-      _es8388I2cWrite(0x31,0b00011110); // ROUT2VOL - 0 = -45dB, 0b00011110 = +0dB
+      // Registries are decimal, settings are binary as that's how everything is listed in the docs
+      // ...which makes it easier to reference the docs.
+      //
+      _es8388I2cWrite( 8,0b00000000); // I2S to slave
+      _es8388I2cWrite( 2,0b11110011); // Power down DEM and STM
+      _es8388I2cWrite(43,0b10000000); // Set same LRCK
+      _es8388I2cWrite( 0,0b00000101); // Set chip to Play & Record Mode
+      _es8388I2cWrite(13,0b00000010); // Set MCLK/LRCK ratio to 256
+      _es8388I2cWrite( 1,0b01000000); // Power up analog and lbias
+      _es8388I2cWrite( 3,0b00000000); // Power up ADC, Analog Input, and Mic Bias
+      _es8388I2cWrite( 4,0b11111100); // Power down DAC, Turn on LOUT1 and ROUT1 and LOUT2 and ROUT2 power
+      _es8388I2cWrite( 2,0b01000000); // Power up DEM and STM and undocumented bit for "turn on line-out amp"
+
+      // #define use_es8388_mic
+
+    #ifdef use_es8388_mic
+      // The mics *and* line-in are BOTH connected to LIN2/RIN2 on the AudioKit
+      // so there's no way to completely eliminate the mics. It's also hella noisy. 
+      // Line-in works OK on the AudioKit, generally speaking, as the mics really need
+      // amplification to be noticable in a quiet room. If you're in a very loud room, 
+      // the mics on the AudioKit WILL pick up sound even in line-in mode. 
+      // TL;DR: Don't use the AudioKit for anything, use the LyraT. 
+      //
+      // The LyraT does a reasonable job with mic input as configured below.
+
+      // Pick one of these. If you have to use the mics, use a LyraT over an AudioKit if you can:
+      _es8388I2cWrite(10,0b00000000); // Use Lin1/Rin1 for ADC input (mic on LyraT)
+      //_es8388I2cWrite(10,0b01010000); // Use Lin2/Rin2 for ADC input (mic *and* line-in on AudioKit)
+      
+      _es8388I2cWrite( 9,0b10001000); // Select Analog Input PGA Gain for ADC to +24dB (L+R)
+      _es8388I2cWrite(16,0b00000000); // Set ADC digital volume attenuation to 0dB (left)
+      _es8388I2cWrite(17,0b00000000); // Set ADC digital volume attenuation to 0dB (right)
+      _es8388I2cWrite(38,0b00011011); // Mixer - route LIN1/RIN1 to output after mic gain
+
+      _es8388I2cWrite(39,0b01000000); // Mixer - route LIN to mixL, +6dB gain
+      _es8388I2cWrite(42,0b01000000); // Mixer - route RIN to mixR, +6dB gain
+      _es8388I2cWrite(46,0b00100001); // LOUT1VOL - 0b00100001 = +4.5dB
+      _es8388I2cWrite(47,0b00100001); // ROUT1VOL - 0b00100001 = +4.5dB
+      _es8388I2cWrite(48,0b00100001); // LOUT2VOL - 0b00100001 = +4.5dB
+      _es8388I2cWrite(49,0b00100001); // ROUT2VOL - 0b00100001 = +4.5dB
+
+      // Music ALC - the mics like Auto Level Control
+      // You can also use this for line-in, but it's not really needed.
+      //
+      _es8388I2cWrite(18,0b11111000); // ALC: stereo, max gain +35.5dB, min gain -12dB 
+      _es8388I2cWrite(19,0b00110000); // ALC: target -1.5dB, 0ms hold time
+      _es8388I2cWrite(20,0b10100110); // ALC: gain ramp up = 420ms/93ms, gain ramp down = check manual for calc
+      _es8388I2cWrite(21,0b00000110); // ALC: use "ALC" mode, no zero-cross, window 96 samples
+      _es8388I2cWrite(22,0b01011001); // ALC: noise gate threshold, PGA gain constant, noise gate enabled 
+    #else
+      _es8388I2cWrite(10,0b01010000); // Use Lin2/Rin2 for ADC input ("line-in")
+      _es8388I2cWrite( 9,0b00000000); // Select Analog Input PGA Gain for ADC to 0dB (L+R)
+      _es8388I2cWrite(16,0b01000000); // Set ADC digital volume attenuation to -32dB (left)
+      _es8388I2cWrite(17,0b01000000); // Set ADC digital volume attenuation to -32dB (right)
+      _es8388I2cWrite(38,0b00001001); // Mixer - route LIN2/RIN2 to output
+
+      _es8388I2cWrite(39,0b01010000); // Mixer - route LIN to mixL, 0dB gain
+      _es8388I2cWrite(42,0b01010000); // Mixer - route RIN to mixR, 0dB gain
+      _es8388I2cWrite(46,0b00011011); // LOUT1VOL - 0b00011110 = +0dB, 0b00011011 = LyraT balance fix
+      _es8388I2cWrite(47,0b00011110); // ROUT1VOL - 0b00011110 = +0dB
+      _es8388I2cWrite(48,0b00011110); // LOUT2VOL - 0b00011110 = +0dB
+      _es8388I2cWrite(49,0b00011110); // ROUT2VOL - 0b00011110 = +0dB
+    #endif
+
     }
 
   public:
@@ -549,11 +581,14 @@ class ES8388Source : public I2SSource {
       _config.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
     };
 
-    void initialize(int8_t sdaPin, int8_t sclPin, int8_t i2swsPin, int8_t i2ssdPin, int8_t i2sckPin, int8_t mclkPin) {
+    void initialize(int8_t i2swsPin, int8_t i2ssdPin, int8_t i2sckPin, int8_t mclkPin) {
 
-      // check that pins are valid
-      if ((sdaPin < 0) || (sclPin < 0)) {
-        ERRORSR_PRINTF("\nAR: invalid ES8388 I2C pins: SDA=%d, SCL=%d\n", sdaPin, sclPin); 
+       if ((i2c_sda < 0) || (i2c_scl < 0)) {  // check that global I2C pins are not "undefined"
+        ERRORSR_PRINTF("\nAR: invalid ES8388 global I2C pins: SDA=%d, SCL=%d\n", i2c_sda, i2c_scl); 
+        return;
+      }
+      if (!pinManager.joinWire()) {    // WLEDMM specific: start I2C with globally defined pins
+        ERRORSR_PRINTF("\nAR: failed to join I2C bus with SDA=%d, SCL=%d\n", i2c_sda, i2c_scl); 
         return;
       }
 
@@ -562,32 +597,16 @@ class ES8388Source : public I2SSource {
         return;
       }
 
-      // Reserve SDA and SCL pins of the I2C interface
-      PinManagerPinType es8388Pins[2] = { { sdaPin, true }, { sclPin, true } };
-      if (!pinManager.allocateMultiplePins(es8388Pins, 2, PinOwner::HW_I2C)) {
-        pinManager.deallocateMultiplePins(es8388Pins, 2, PinOwner::HW_I2C);
-        ERRORSR_PRINTF("\nAR: Failed to allocate ES8388 I2C pins: SDA=%d, SCL=%d\n", sdaPin, sclPin); 
-        return;
-      }
-
-      pin_ES8388_SDA = sdaPin;
-      pin_ES8388_SCL = sclPin;
-
       // First route mclk, then configure ADC over I2C, then configure I2S
       _es8388InitAdc();
       I2SSource::initialize(i2swsPin, i2ssdPin, i2sckPin, mclkPin);
     }
 
     void deinitialize() {
-      // Release SDA and SCL pins of the I2C interface
-      PinManagerPinType es8388Pins[2] = { { pin_ES8388_SDA, true }, { pin_ES8388_SCL, true } };
-      pinManager.deallocateMultiplePins(es8388Pins, 2, PinOwner::HW_I2C);
       I2SSource::deinitialize();
     }
 
-  private:
-    int8_t pin_ES8388_SDA;
-    int8_t pin_ES8388_SCL;
+
 };
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0)

@@ -21,6 +21,15 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
   //0: menu 1: wifi 2: leds 3: ui 4: sync 5: time 6: sec 7: DMX 8: usermods 9: N/A 10: 2D
   if (subPage <1 || subPage >10 || !correctPIN) return;
 
+  // WLEDMM: before changing bus, ledmap, strip or 2D settings, make sure our strip is _not_ servicing effects in parallel
+  if ((subPage == 2) || (subPage == 3) || (subPage == 10)) {
+    suspendStripService = true; // temporarily lock out strip updates
+    if (strip.isServicing()) {
+      USER_PRINTLN(F("handleSettingsSet(): strip is still drawing effects."));
+      strip.waitUntilIdle();
+    }
+  }
+
   //WIFI SETTINGS
   if (subPage == 1)
   {
@@ -38,6 +47,14 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     int t = request->arg(F("AC")).toInt(); if (t > 0 && t < 14) apChannel = t;
 
     noWifiSleep = request->hasArg(F("WS"));
+
+    #ifndef WLED_DISABLE_ESPNOW
+    enable_espnow_remote = request->hasArg(F("RE"));
+    strlcpy(linked_remote,request->arg(F("RMAC")).c_str(), 13);
+
+    //Normalize MAC format to lowercase
+    strlcpy(linked_remote,strlwr(linked_remote), 13);
+    #endif
 
     #ifdef WLED_USE_ETHERNET
     ethernetType = request->arg(F("ETH")).toInt();
@@ -102,6 +119,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       char rf[4] = "RF"; rf[2] = 48+s; rf[3] = 0; //refresh required
       char aw[4] = "AW"; aw[2] = 48+s; aw[3] = 0; //auto white mode
       char wo[4] = "WO"; wo[2] = 48+s; wo[3] = 0; //channel swap
+      char sp[4] = "SP"; sp[2] = 48+s; sp[3] = 0; //bus clock speed (DotStar & PWM)
       if (!request->hasArg(lp)) {
         DEBUG_PRINT(F("No data for "));
         DEBUG_PRINTLN(s);
@@ -123,11 +141,33 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         break;  // no parameter
       }
       awmode = request->arg(aw).toInt();
+      uint16_t freqHz = request->arg(sp).toInt();
+      if (type > TYPE_ONOFF && type < 49) {
+        switch (freqHz) {
+          case 0 : freqHz = WLED_PWM_FREQ/3; break;
+          case 1 : freqHz = WLED_PWM_FREQ/2; break;
+          default:
+          case 2 : freqHz = WLED_PWM_FREQ;   break;
+          case 3 : freqHz = WLED_PWM_FREQ*2; break;
+          case 4 : freqHz = WLED_PWM_FREQ*3; break;
+        }
+      } else if (type > 48 && type < 64) {
+        switch (freqHz) {
+          default:
+          case 0 : freqHz =  1000; break;
+          case 1 : freqHz =  2000; break;
+          case 2 : freqHz =  5000; break;
+          case 3 : freqHz = 10000; break;
+          case 4 : freqHz = 20000; break;
+        }
+      } else {
+        freqHz = 0;
+      }
       channelSwap = (type == TYPE_SK6812_RGBW || type == TYPE_TM1814) ? request->arg(wo).toInt() : 0;
       // actual finalization is done in WLED::loop() (removing old busses and adding new)
       // this may happen even before this loop is finished so we do "doInitBusses" after the loop
       if (busConfigs[s] != nullptr) delete busConfigs[s];
-      busConfigs[s] = new BusConfig(type, pins, start, length, colorOrder | (channelSwap<<4), request->hasArg(cv), skip, awmode);
+      busConfigs[s] = new BusConfig(type, pins, start, length, colorOrder | (channelSwap<<4), request->hasArg(cv), skip, awmode, freqHz);
       busesChanged = true;
     }
     //doInitBusses = busesChanged; // we will do that below to ensure all input data is processed
@@ -211,6 +251,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     if (t <= 250) bootPreset = t;
     gammaCorrectBri = request->hasArg(F("GB"));
     gammaCorrectCol = request->hasArg(F("GC"));
+    gammaCorrectPreview = request->hasArg(F("GCP"));  // WLEDMM
     gammaCorrectVal = request->arg(F("GV")).toFloat();
     if (gammaCorrectVal > 1.0f && gammaCorrectVal <= 3)
       calcGammaTable(gammaCorrectVal);
@@ -218,6 +259,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       gammaCorrectVal = 1.0f; // no gamma correction
       gammaCorrectBri = false;
       gammaCorrectCol = false;
+      gammaCorrectPreview = false; // WLEDMM
     }
 
     fadeTransition = request->hasArg(F("TF"));
@@ -336,6 +378,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     strlcpy(mqttDeviceTopic, request->arg(F("MD")).c_str(), 33);
     strlcpy(mqttGroupTopic, request->arg(F("MG")).c_str(), 33);
     buttonPublishMqtt = request->hasArg(F("BM"));
+    retainMqttMsg = request->hasArg(F("RT"));
     #endif
 
     #ifndef WLED_DISABLE_HUESYNC
@@ -743,6 +786,10 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
   }
   #endif
 
+  if ((subPage == 2) || (subPage == 3) || (subPage == 10)) {
+    suspendStripService = false; // WLEDMM release lock
+  }
+
   lastEditTime = millis();
   if (subPage != 2 && !doReboot) doSerializeConfig = true; //serializeConfig(); //do not save if factory reset or LED settings (which are saved after LED re-init)
   #ifndef WLED_DISABLE_ALEXA
@@ -777,6 +824,12 @@ bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply)
       selectedSeg = t;
       singleSegment = true;
     }
+  }
+
+  // WLEDMM: before changing segment settings, make sure our strip is _not_ servicing effects in parallel
+  if (strip.isServicing()) {
+      USER_PRINTLN(F("handleSet(): strip is still drawing effects."));
+      strip.waitUntilIdle();
   }
 
   Segment& selseg = strip.getSegment(selectedSeg);
@@ -825,7 +878,7 @@ bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply)
   if (pos > 0) {
     spcI = getNumVal(&req, pos);
   }
-  selseg.set(startI, stopI, grpI, spcI, UINT16_MAX, startY, stopY);
+  selseg.setUp(startI, stopI, grpI, spcI, UINT16_MAX, startY, stopY);
 
   pos = req.indexOf(F("RV=")); //Segment reverse
   if (pos > 0) selseg.reverse = req.charAt(pos+3) != '0';

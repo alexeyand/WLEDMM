@@ -149,7 +149,10 @@ bool oappend(const char* txt)
 {
   uint16_t len = strlen(txt);
   if (olen + len >= SETTINGS_STACK_BUF_SIZE) {
-    DEBUG_PRINTLN(F("oappend() error: buffer full. Increase SETTINGS_STACK_BUF_SIZE."));
+    USER_PRINT(F("oappend() error: buffer full. Increase SETTINGS_STACK_BUF_SIZE for "));
+    USER_PRINTF("%2u bytes \t\"", len /*1 + olen + len - SETTINGS_STACK_BUF_SIZE*/);
+    USER_PRINT(txt);
+    USER_PRINTLN(F("\""));
     return false;        // buffer full
   }
   strcpy(obuf + olen, txt);
@@ -392,11 +395,12 @@ uint16_t crc16(const unsigned char* data_p, size_t length) {
 // Begin simulateSound (to enable audio enhanced effects to display something)
 ///////////////////////////////////////////////////////////////////////////////
 // Currently 4 types defined, to be fine tuned and new types added
+// (only 2 used as stored in 1 bit in segment options, consider switching to a single global simulation type)
 typedef enum UM_SoundSimulations {
   UMS_BeatSin = 0,
-  UMS_WeWillRockYou,
-  UMS_10_3,
-  UMS_14_3
+  UMS_WeWillRockYou
+  //UMS_10_13,
+  //UMS_14_3
 } um_soundSimulations_t;
 
 um_data_t* simulateSound(uint8_t simulationId)
@@ -484,7 +488,7 @@ um_data_t* simulateSound(uint8_t simulationId)
           fftResult[i] = 0;
       }
       break;
-    case UMS_10_3:
+  /*case UMS_10_3:
       for (int i = 0; i<16; i++)
         fftResult[i] = inoise8(beatsin8(90 / (i+1), 0, 200)*15 + (ms>>10), ms>>3);
         volumeSmth = fftResult[8];
@@ -493,7 +497,7 @@ um_data_t* simulateSound(uint8_t simulationId)
       for (int i = 0; i<16; i++)
         fftResult[i] = inoise8(beatsin8(120 / (i+1), 10, 30)*10 + (ms>>14), ms>>3);
       volumeSmth = fftResult[8];
-      break;
+      break;*/
   }
 
   samplePeak    = random8() > 250;
@@ -536,4 +540,33 @@ CRGB getCRGBForBand(int x, uint8_t *fftResult, int pal) {
   }
 
   return value;
-} 
+}
+
+// WLEDMM extended "trim string" function to support enumerateLedmaps
+// The function takes char* as input, and removes all leading and trailing "decorations" like spaces, tabs, line endings, quotes, colons
+// The conversion is "in place" (destructive).
+// example: cleanUpName("\t \"Ring241x 60/9 squeeze \" ,\r") returns "Ring241x 60/9 squeeze"
+// 
+// Null pointer and zero size "C strings" are handled correctly.
+// Will not work with flash strings. Unicode encoded multi-byte char strings may get corrupted.
+//
+static const char *unwantedChars = "\r\n\t\b ,;:\"\'`´\\"; // list of chars to delete
+//
+char *cleanUpName(char *in) {
+  if (nullptr == in) return(in);
+  size_t len = strlen(in);
+  if (len == 0) return(in);
+
+  // delete trailing garbage
+  while ((len > 0) && (strchr(unwantedChars, in[len-1]) != nullptr)) {
+    in[len-1] = '\0'; // deletes last char
+    len--;
+  }
+  // delete leading garbage
+  while ((len > 0) && (strchr(unwantedChars, in[0]) != nullptr)) {
+    (void) memmove(in, in+1, len); // shifts string left by one
+    len--;
+  }
+  
+  return(in);
+}

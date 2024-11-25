@@ -3,12 +3,33 @@
 /*
    Main sketch, global variable declarations
    @title WLED project sketch
-   @version 0.14.0-b2
+   @version 0.14.1-b1x
    @author Christian Schwinne
  */
 
 // version code in format yymmddb (b = daily build)
-#define VERSION 2308250
+#define VERSION 2411150
+
+// WLEDMM  - you can check for this define in usermods, to only enabled WLEDMM specific code in the "right" fork. Its not defined in AC WLED.
+#define _MoonModules_WLED_
+
+//WLEDMM + Moustachauve/Wled-Native 
+// You can define custom product info from build flags.
+// This is useful to allow API consumer to identify what type of WLED version
+// they are interacting with. Be aware that changing this might cause some third
+// party API consumers to consider this as a non-WLED device since the values
+// returned by the API and by MQTT will no longer be default. However, most
+// third party only uses mDNS to validate, so this is generally fine to change.
+// For example, Home Assistant will still work fine even with this value changed.
+// Use like this:
+// -D WLED_BRAND="\"Custom Brand\""
+// -D WLED_PRODUCT_NAME="\"Custom Product\""
+#ifndef WLED_BRAND
+  #define WLED_BRAND "WLED"
+#endif
+#ifndef WLED_PRODUCT_NAME
+  #define WLED_PRODUCT_NAME "MoonModules"
+#endif
 
 //uncomment this if you have a "my_config.h" file you'd like to use
 //#define WLED_USE_MY_CONFIG
@@ -65,7 +86,7 @@
 //This is generally a terrible idea, but improves boot success on boards with a 3.3v regulator + cap setup that can't provide 400mA peaks
 //#define WLED_DISABLE_BROWNOUT_DET
 
-// WLED-MM MANDATORY flags
+// WLEDMM MANDATORY flags
 #define WLEDMM_PROTECT_SERVICE // prevents crashes when effects are drawing while asyncWebServer tries to modify segments at the same time
 
 // Library inclusions.
@@ -144,6 +165,10 @@
  #endif
 #endif
 
+#ifdef WLED_ENABLE_DMX_INPUT
+  #include "dmx_input.h"
+#endif
+
 #include "src/dependencies/e131/ESPAsyncE131.h"
 #ifdef WLED_ENABLE_MQTT
 #include "src/dependencies/async-mqtt-client/AsyncMqttClient.h"
@@ -156,9 +181,15 @@
 // ESP32-WROVER features SPI RAM (aka PSRAM) which can be allocated using ps_malloc()
 // we can create custom PSRAMDynamicJsonDocument to use such feature (replacing DynamicJsonDocument)
 // The following is a construct to enable code to compile without it.
-// There is a code thet will still not use PSRAM though:
+// There is a code that will still not use PSRAM though:
 //    AsyncJsonResponse is a derived class that implements DynamicJsonDocument (AsyncJson-v6.h)
 #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM) && (defined(WLED_USE_PSRAM) || defined(WLED_USE_PSRAM_JSON))         // WLEDMM
+// WLEDMM the JSON_TO_PSRAM feature works, so use it by default
+#undef  WLED_USE_PSRAM_JSON
+#define WLED_USE_PSRAM_JSON
+#undef  ALL_JSON_TO_PSRAM
+#define ALL_JSON_TO_PSRAM
+
 struct PSRAM_Allocator {
   void* allocate(size_t size) {
     if (psramFound()) return ps_malloc(size); // use PSRAM if it exists
@@ -173,6 +204,7 @@ struct PSRAM_Allocator {
   }
 };
 using PSRAMDynamicJsonDocument = BasicJsonDocument<PSRAM_Allocator>;
+//#define DynamicJsonDocument PSRAMDynamicJsonDocument  // WLEDMM experiment
 #else
 #define PSRAMDynamicJsonDocument DynamicJsonDocument
 #endif
@@ -239,16 +271,17 @@ using PSRAMDynamicJsonDocument = BasicJsonDocument<PSRAM_Allocator>;
 //     int arr[]{0,1,2} becomes WLED_GLOBAL int arr[] _INIT_N(({0,1,2}));
 
 #ifndef WLED_DEFINE_GLOBAL_VARS
-# define WLED_GLOBAL extern
-# define _INIT(x)
-# define _INIT_N(x)
+  #define WLED_GLOBAL extern
+  #define _INIT(x)
+  #define _INIT_N(x)
+  #define _INIT_PROGMEM(x)
 #else
-# define WLED_GLOBAL
-# define _INIT(x) = x
-
-//needed to ignore commas in array definitions
-#define UNPACK( ... ) __VA_ARGS__
-# define _INIT_N(x) UNPACK x
+  #define WLED_GLOBAL
+  #define _INIT(x) = x
+  //needed to ignore commas in array definitions
+  #define UNPACK( ... ) __VA_ARGS__
+  #define _INIT_N(x) UNPACK x
+  #define _INIT_PROGMEM(x) PROGMEM = x
 #endif
 
 #define STRINGIFY(X) #X
@@ -258,9 +291,13 @@ using PSRAMDynamicJsonDocument = BasicJsonDocument<PSRAM_Allocator>;
   #define WLED_VERSION "dev"
 #endif
 
+#ifndef WLED_RELEASE_NAME
+  #define WLED_RELEASE_NAME mdev_release
+#endif
+
 // Global Variable definitions
 WLED_GLOBAL char versionString[] _INIT(TOSTRING(WLED_VERSION));
-WLED_GLOBAL char releaseString[] _INIT(TOSTRING(WLED_RELEASE_NAME)); //WLEDMM: to show on update page
+WLED_GLOBAL char releaseString[] _INIT_PROGMEM(TOSTRING(WLED_RELEASE_NAME)); //WLEDMM: to show on update page // somehow this will not work if using "const char releaseString[]
 #define WLED_CODENAME "Hoshi"
 
 // AP and OTA default passwords (for maximum security change them!)
@@ -320,6 +357,7 @@ WLED_GLOBAL bool noWifiSleep _INIT(true);                          // disabling 
 #else
 WLED_GLOBAL bool noWifiSleep _INIT(false);
 #endif
+WLED_GLOBAL bool force802_3g _INIT(false);
 
 #ifdef WLED_USE_ETHERNET
   #ifdef WLED_ETH_DEFAULT                                          // default ethernet board type if specified
@@ -420,12 +458,14 @@ WLED_GLOBAL bool arlsForceMaxBri _INIT(false);                    // enable to f
 WLED_GLOBAL uint16_t e131ProxyUniverse _INIT(0);                  // output this E1.31 (sACN) / ArtNet universe via MAX485 (0 = disabled)
 #endif
 #ifdef WLED_ENABLE_DMX_INPUT
-  WLED_GLOBAL int dmxTransmitPin _INIT(0);
-  WLED_GLOBAL int dmxReceivePin _INIT(0);
-  WLED_GLOBAL int dmxEnablePin _INIT(0);
+  WLED_GLOBAL int dmxInputTransmitPin _INIT(0);
+  WLED_GLOBAL int dmxInputReceivePin _INIT(0);
+  WLED_GLOBAL int dmxInputEnablePin _INIT(0);
+  WLED_GLOBAL int dmxInputPort _INIT(2);
+  WLED_GLOBAL DMXInput dmxInput;
 #endif
 
-WLED_GLOBAL uint16_t e131Universe _INIT(1);                       // settings for E1.31 (sACN) protocol (only DMX_MODE_MULTIPLE_* can span over consequtive universes)
+WLED_GLOBAL uint16_t e131Universe _INIT(1);                       // settings for E1.31 (sACN) protocol (only DMX_MODE_MULTIPLE_* can span over consecutive universes)
 WLED_GLOBAL uint16_t e131Port _INIT(5568);                        // DMX in port. E1.31 default is 5568, Art-Net is 6454
 WLED_GLOBAL byte e131Priority _INIT(0);                           // E1.31 port priority (if != 0 priority handling is active)
 WLED_GLOBAL E131Priority highPriority _INIT(3);                   // E1.31 highest priority tracking, init = timeout in seconds
@@ -504,7 +544,8 @@ WLED_GLOBAL byte macroDoublePress[WLED_MAX_BUTTONS]   _INIT({0});
 WLED_GLOBAL bool otaLock     _INIT(false);  // prevents OTA firmware updates without password. ALWAYS enable if system exposed to any public networks
 WLED_GLOBAL bool wifiLock    _INIT(false);  // prevents access to WiFi settings when OTA lock is enabled
 #ifdef ARDUINO_ARCH_ESP32
-WLED_GLOBAL bool aOtaEnabled _INIT(true);   // ArduinoOTA allows easy updates directly from the IDE. Careful, it does not auto-disable when OTA lock is on
+// WLEDMM disabled as default - arduinoOTA is a relic, only useful when using ArduinoIDE
+WLED_GLOBAL bool aOtaEnabled _INIT(false);   // ArduinoOTA allows easy updates directly from the IDE. Careful, it does not auto-disable when OTA lock is on
 #else
 WLED_GLOBAL bool aOtaEnabled _INIT(false);   // WLEDMM: start with OTA disabled, as it seems to be unstable on 8266
 #endif
@@ -528,7 +569,7 @@ WLED_GLOBAL uint16_t userVar0 _INIT(0), userVar1 _INIT(0); //available for use i
 // wifi
 WLED_GLOBAL bool apActive _INIT(false);
 WLED_GLOBAL bool forceReconnect _INIT(false);
-WLED_GLOBAL uint32_t lastReconnectAttempt _INIT(0);
+WLED_GLOBAL unsigned long lastReconnectAttempt _INIT(0);
 WLED_GLOBAL bool interfacesInited _INIT(false);
 WLED_GLOBAL bool wasConnected _INIT(false);
 
@@ -537,7 +578,7 @@ WLED_GLOBAL byte lastRandomIndex _INIT(0);        // used to save last random co
 
 // transitions
 WLED_GLOBAL bool          transitionActive        _INIT(false);
-WLED_GLOBAL uint16_t      transitionDelayDefault  _INIT(transitionDelay); // default transition time (storec in cfg.json)
+WLED_GLOBAL uint16_t      transitionDelayDefault  _INIT(transitionDelay); // default transition time (stored in cfg.json)
 WLED_GLOBAL uint16_t      transitionDelayTemp     _INIT(transitionDelay); // actual transition duration (overrides transitionDelay in certain cases)
 WLED_GLOBAL unsigned long transitionStartTime;
 WLED_GLOBAL float         tperLast                _INIT(0.0f);            // crossfade transition progress, 0.0f - 1.0f
@@ -557,7 +598,7 @@ WLED_GLOBAL byte colNlT[] _INIT_N(({ 0, 0, 0, 0 }));        // current nightligh
 WLED_GLOBAL unsigned long lastOnTime _INIT(0);
 WLED_GLOBAL bool offMode             _INIT(!turnOnAtBoot);
 WLED_GLOBAL byte bri                 _INIT(briS);          // global brightness (set)
-WLED_GLOBAL byte briOld              _INIT(0);             // global brightnes while in transition loop (previous iteration)
+WLED_GLOBAL byte briOld              _INIT(0);             // global brightness while in transition loop (previous iteration)
 WLED_GLOBAL byte briT                _INIT(0);             // global brightness during transition
 WLED_GLOBAL byte briLast             _INIT(128);           // brightness before turned off. Used for toggle function
 WLED_GLOBAL byte whiteLast           _INIT(128);           // white channel before turned off. Used for toggle function
@@ -617,6 +658,7 @@ WLED_GLOBAL byte timerWeekday[]   _INIT_N(({ 255, 255, 255, 255, 255, 255, 255, 
 WLED_GLOBAL byte timerMonth[]     _INIT_N(({28,28,28,28,28,28,28,28}));
 WLED_GLOBAL byte timerDay[]       _INIT_N(({1,1,1,1,1,1,1,1}));
 WLED_GLOBAL byte timerDayEnd[]		_INIT_N(({31,31,31,31,31,31,31,31}));
+WLED_GLOBAL bool doAdvancePlaylist _INIT(false);
 
 //improv
 WLED_GLOBAL byte improvActive _INIT(0); //0: no improv packet received, 1: improv active, 2: provisioning
@@ -652,10 +694,11 @@ WLED_GLOBAL String escapedMac;
 WLED_GLOBAL DNSServer dnsServer;
 
 // network time
+#define NTP_NEVER 999000000L
 WLED_GLOBAL bool ntpConnected _INIT(false);
 WLED_GLOBAL time_t localTime _INIT(0);
-WLED_GLOBAL unsigned long ntpLastSyncTime _INIT(999000000L);
-WLED_GLOBAL unsigned long ntpPacketSentTime _INIT(999000000L);
+WLED_GLOBAL unsigned long ntpLastSyncTime _INIT(NTP_NEVER);
+WLED_GLOBAL unsigned long ntpPacketSentTime _INIT(NTP_NEVER);
 WLED_GLOBAL IPAddress ntpServerIP;
 WLED_GLOBAL uint16_t ntpLocalPort _INIT(2390);
 WLED_GLOBAL uint16_t rolloverMillis _INIT(0);
@@ -714,11 +757,12 @@ WLED_GLOBAL bool e131NewData _INIT(false);
 WLED_GLOBAL BusManager busses _INIT(BusManager());
 WLED_GLOBAL WS2812FX strip _INIT(WS2812FX());
 WLED_GLOBAL BusConfig* busConfigs[WLED_MAX_BUSSES+WLED_MIN_VIRTUAL_BUSSES] _INIT({nullptr}); //temporary, to remember values from network callback until after
-// WLEDMM a few "poor man's" mutal exclusion (mutex) flags, because there are not mutex objects on 8266.
+// WLEDMM a few "poor man's" mutual exclusion (mutex) flags, because there are not mutex objects on 8266.
 WLED_GLOBAL volatile bool doInitBusses _INIT(false);        // WLEDMM "volatile" added - needed as we want to sync parallel tasks
 WLED_GLOBAL volatile bool loadLedmap _INIT(false);          // WLEDMM use as bool and use loadedLedmap for Nr
 WLED_GLOBAL volatile uint8_t loadedLedmap _INIT(0);         // WLEDMM default 0
 WLED_GLOBAL volatile bool suspendStripService _INIT(false); // WLEDMM temporarily prevent running strip.service, when strip or segments are "under update" and inconsistent
+WLED_GLOBAL volatile bool OTAisRunning _INIT(false);        // WLEDMM temporarily stop led updates during OTA
 #ifndef ESP8266
 WLED_GLOBAL char  *ledmapNames[WLED_MAX_LEDMAPS-1] _INIT_N(({nullptr}));
 #endif
@@ -765,7 +809,21 @@ WLED_GLOBAL int8_t spi_sclk  _INIT(HW_PIN_CLOCKSPI);
 #endif
 
 // global ArduinoJson buffer
+#if defined(ALL_JSON_TO_PSRAM) && (defined(WLED_USE_PSRAM_JSON) || defined(WLED_USE_PSRAM))
+// WLEDMM experimental : always use dynamic JSON
+  #ifndef WLED_DEFINE_GLOBAL_VARS
+  WLED_GLOBAL PSRAMDynamicJsonDocument doc;
+  #else
+  #if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || !defined(BOARD_HAS_PSRAM)
+    WLED_GLOBAL PSRAMDynamicJsonDocument doc(JSON_BUFFER_SIZE);       // S2 has very small RAM - lets not push our luck too far
+  #else
+    WLED_GLOBAL PSRAMDynamicJsonDocument doc(JSON_BUFFER_SIZE * 2 );  // initially "doc" is allocated in RAM, and later pushed into PSRAM when the drivers is ready
+  #endif
+  //#warning trying to always use dynamic JSON in PSRAM
+  #endif
+#else
 WLED_GLOBAL StaticJsonDocument<JSON_BUFFER_SIZE> doc;
+#endif // WLEDMM end
 WLED_GLOBAL volatile uint8_t jsonBufferLock _INIT(0);
 
 // enable additional debug output
@@ -781,11 +839,13 @@ WLED_GLOBAL volatile uint8_t jsonBufferLock _INIT(0);
   #define DEBUGOUT(x) (netDebugEnabled || !canUseSerial())?NetDebug.print(x):Serial.print(x)
   #define DEBUGOUTLN(x) (netDebugEnabled || !canUseSerial())?NetDebug.println(x):Serial.println(x)
   #define DEBUGOUTF(x...) (netDebugEnabled || !canUseSerial())?NetDebug.printf(x):Serial.printf(x)
+  #define DEBUGOUTFP(x...) (netDebugEnabled || !canUseSerial())?NetDebug.printf_P(x):Serial.printf_P(x)
   #define DEBUGOUTFlush() (netDebugEnabled || !canUseSerial())?NetDebug.flush():Serial.flush()
 #else
   #define DEBUGOUT(x) {if (canUseSerial()) Serial.print(x);}
   #define DEBUGOUTLN(x) {if (canUseSerial()) Serial.println(x);}
   #define DEBUGOUTF(x...) {if (canUseSerial()) Serial.printf(x);}
+  #define DEBUGOUTFP(x...) {if (canUseSerial()) Serial.printf_P(x);}
   #define DEBUGOUTFlush() {if (canUseSerial()) Serial.flush();}
 #endif
 
@@ -796,10 +856,12 @@ WLED_GLOBAL volatile uint8_t jsonBufferLock _INIT(0);
   #define DEBUG_PRINT(x) DEBUGOUT(x)
   #define DEBUG_PRINTLN(x) DEBUGOUTLN(x)
   #define DEBUG_PRINTF(x...) DEBUGOUTF(x)
+  #define DEBUG_PRINTF_P(x...) DEBUGOUTFP(x)
 #else
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTF(x...)
+  #define DEBUG_PRINTF_P(x...)
 #endif
 
 #define USER_PRINT(x)      DEBUGOUT(x)
@@ -870,9 +932,9 @@ public:
   }
 
   // boot starts here
-  void setup();
+  void setup() __attribute__((used));
 
-  void loop();
+  void loop()  __attribute__((used));
   void reset();
 
   void beginStrip();

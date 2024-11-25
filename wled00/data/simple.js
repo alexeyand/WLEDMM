@@ -965,7 +965,7 @@ function readState(s,command=false)
 		  errstr = "Missing IR.json.";
 		  break;
 		case 19:
-		  errstr = "A filesystem error has occured.";
+		  errstr = "A filesystem error has occurred.";
 		  break;
 		}
 	  showToast('Error ' + s.error + ": " + errstr, true);
@@ -1135,7 +1135,7 @@ function setSegBri(s)
 function setEffect(ind = 0)
 {
 	tglFxDropdown();
-	var obj = {"seg": {"fx": parseInt(ind), "fxdef":true}}; // fxdef sets effect parameters to default values, TODO add client setting
+	var obj = {"seg": {"fx": parseInt(ind), "fxdef":true, "fxdef2":false}}; // fxdef sets effect parameters to default values, TODO add client setting
 	requestJson(obj);
 }
 

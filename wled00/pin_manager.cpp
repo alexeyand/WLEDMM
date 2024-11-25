@@ -41,12 +41,18 @@ String PinManagerClass::getOwnerText(PinOwner tag) {
     case PinOwner::Button     : return(F("Button")); break;         // 'Butn' == button from configuration
     case PinOwner::IR         : return(F("IR Receiver")); break;    // 'IR'   == IR receiver pin from configuration
     case PinOwner::Relay      : return(F("Relay")); break;          // 'Rly'  == Relay pin from configuration
+#if defined(ARDUINO_ESP32_PICO)
+    case PinOwner::SPI_RAM    : return(F("SPI FLASH")); break;      // PICO boards use gpio 16+17 for embedded flash, not for PSRAM
+#else
     case PinOwner::SPI_RAM    : return(F("PSRAM")); break;          // 'SpiR' == SPI RAM (aka PSRAM)
+#endif
     case PinOwner::DMX        : return(F("DMX out")); break;        // 'DMX'  == hard-coded to IO2
     case PinOwner::HW_I2C     : return(F("I2C (hw)")); break;            // 'I2C'  == hardware I2C pins (4&5 on ESP8266, 21&22 on ESP32)
     case PinOwner::HW_SPI     : return(F("SPI (hw)")); break;            // 'SPI'  == hardware (V)SPI pins (13,14&15 on ESP8266, 5,18&23 on ESP32)
+    case PinOwner::DMX_INPUT  : return(F("DMX Input")); break;            
+    case PinOwner::HUB75      : return(F("Hub75")); break;          // 'Hub75' == Hub75 driver 
 
-    case PinOwner::UM_Audioreactive     : return(F("AudioReactive (UM)")); break;     // audioreative usermod - analog or digital audio input
+    case PinOwner::UM_Audioreactive     : return(F("AudioReactive (UM)")); break;     // audioreactive usermod - analog or digital audio input
     case PinOwner::UM_Temperature       : return(F("Temperature (UM)")); break;       // "usermod_temperature.h"
     case PinOwner::UM_PIR               : return(F("PIR (UM)")); break;               // "usermod_PIR_sensor_switch.h"
     case PinOwner::UM_IMU               : return(F("IMU mpu6050 (UM)")); break;       // "usermod_mpu6050_imu.h"
@@ -61,6 +67,7 @@ String PinManagerClass::getOwnerText(PinOwner tag) {
     case PinOwner::UM_SdCard            : return(F("SD-Card (UM)")); break;           // "usermod_sd_card.h" -- Uses SPI pins
     case PinOwner::UM_PWM_OUTPUTS       : return(F("PWM Output (UM)")); break;        // "usermod_pwm_outputs.h"
     case PinOwner::UM_Battery           : return(F("Battery (UM)")); break;           // "usermod_battery.h"
+    case PinOwner::UM_LDR_DUSK_DAWN     : return(F("LDR dusk/dawn (UM)")); break;     // "usermod_LDR_Dusk_Dawn_v2.h"
 
     case PinOwner::UM_Example      : return(F("example (UM)")); break;            // unspecified usermod
     case PinOwner::UM_Unspecified  : return(F("usermod (UM)")); break;            // unspecified usermod
@@ -72,7 +79,7 @@ String PinManagerClass::getPinSpecialText(int gpio) {  // special purpose PIN in
   if ((gpio == 0xFF) || (gpio < 0)) return(F(""));      // explicitly allow -1 as a no-op
 
 #ifdef USERMOD_AUDIOREACTIVE
-  // audioreactive settings - unfortunately, these are hiddden inside usermod now :-(
+  // audioreactive settings - unfortunately, these are hidden inside usermod now :-(
   // if((gpio == audioPin) && (dmType == 0)) return(F("analog audio in"));
   // if((gpio == i2ssdPin) && (dmType > 0)) return(F("I2S SD"));
   // if((gpio == i2swsPin) && (dmType > 0)) return(F("I2S WS"));
@@ -106,13 +113,18 @@ String PinManagerClass::getPinSpecialText(int gpio) {  // special purpose PIN in
   #ifdef ARDUINO_ARCH_ESP32
     #if defined(CONFIG_IDF_TARGET_ESP32S3)
       // ESP32-S3
-      if (gpio > 18 && gpio < 21) return (F("USB (CDC) / JTAG"));
-      #if !defined(BOARD_HAS_PSRAM)
-        if (gpio > 32 && gpio < 38)  return (F("(optional) Octal Flash or PSRAM"));
-      #else
+      if (gpio > 18 && gpio < 21) return (F("USB (CDC) or JTAG"));
+      #if CONFIG_ESPTOOLPY_FLASHMODE_OPI || (CONFIG_SPIRAM_MODE_OCT && defined(BOARD_HAS_PSRAM))
         if (gpio > 32 && gpio < 38)  return (F("(reserved) Octal PSRAM or Octal Flash"));
       #endif
       //if (gpio == 0 || gpio == 3 || gpio == 45 || gpio == 46) return (F("(strapping pin)"));
+      #ifdef ARDUINO_TTGO_T7_S3
+      // experimental: a few special pins of the T7-S3 board
+      if (gpio == 2) return  (F("(reserved) _VBAT voltage monitoring"));
+      if (gpio == 17) return (F("onboard LED"));
+      //if (gpio == 3) return  (F("(cross-connected to pin  3-1)")); // WLEDMM experimental
+      //if (gpio == 12) return (F("(cross-connected to pin 12-1)")); // WLEDMM experimental
+      #endif
 
     #elif defined(CONFIG_IDF_TARGET_ESP32S2)
       // ESP32-S2
@@ -122,7 +134,7 @@ String PinManagerClass::getPinSpecialText(int gpio) {  // special purpose PIN in
 
     #elif defined(CONFIG_IDF_TARGET_ESP32C3)
       // ESP32-C3
-      if (gpio > 17 && gpio < 20) return (F("USB (CDC) / JTAG"));
+      if (gpio > 17 && gpio < 20) return (F("USB (CDC) or JTAG"));
       //if (gpio == 2 || gpio == 8 || gpio == 9) return (F("(strapping pin)"));
 
     #else
@@ -272,7 +284,7 @@ String PinManagerClass::getPinConflicts(int gpio) {
 
   if ((ownerConflict[gpio] == PinOwner::None) || (ownerTag[gpio] == ownerConflict[gpio])) { // no conflict, or "fake" conflict with current owner
     return(F(""));             // no conflict fot this GPIO
-  } else {                     // found previous conflic!
+  } else {                     // found previous conflict!
     return String("!! Conflict with ") + getOwnerText(ownerConflict[gpio]) + String(" !!");
   }
 }
@@ -441,7 +453,9 @@ bool PinManagerClass::allocateMultiplePins(const managed_pin_type * mptArray, by
 bool PinManagerClass::allocatePin(byte gpio, bool output, PinOwner tag)
 {
   // HW I2C & SPI pins have to be allocated using allocateMultiplePins variant since there is always SCL/SDA pair
-  if (!isPinOk(gpio, output) || (gpio >= WLED_NUM_PINS) || tag==PinOwner::HW_I2C || tag==PinOwner::HW_SPI) {
+  // DMX_INPUT pins have to be allocated using allocateMultiplePins variant since there is always RX/TX/EN triple
+  if (!isPinOk(gpio, output) || (gpio >= WLED_NUM_PINS) || tag==PinOwner::HW_I2C || tag==PinOwner::HW_SPI
+      || tag==PinOwner::DMX_INPUT) {
     #ifdef WLED_DEBUG
     if (gpio < 255) {  // 255 (-1) is the "not defined GPIO"
       if (!isPinOk(gpio, output)) {
@@ -714,19 +728,25 @@ bool PinManagerClass::joinWire(int8_t pinSDA, int8_t pinSCL) {
  */
 
 // Check if supplied GPIO is ok to use
-bool PinManagerClass::isPinOk(byte gpio, bool output)
+bool PinManagerClass::isPinOk(byte gpio, bool output) const
 {
 #ifdef ESP32
   if (digitalPinIsValid(gpio)) {
   #if defined(CONFIG_IDF_TARGET_ESP32C3)
     // strapping pins: 2, 8, & 9
     if (gpio > 11 && gpio < 18) return false;     // 11-17 SPI FLASH
+    #if ARDUINO_USB_CDC_ON_BOOT == 1 || ARDUINO_USB_DFU_ON_BOOT == 1
     if (gpio > 17 && gpio < 20) return false;     // 18-19 USB-JTAG
+    #endif
   #elif defined(CONFIG_IDF_TARGET_ESP32S3)
     // 00 to 18 are for general use. Be careful about straping pins GPIO0 and GPIO3 - these may be pulled-up or pulled-down on your board.
+    #if ARDUINO_USB_CDC_ON_BOOT == 1 || ARDUINO_USB_DFU_ON_BOOT == 1
     if (gpio > 18 && gpio < 21) return false;     // 19 + 20 = USB-JTAG. Not recommended for other uses.
+    #endif
     if (gpio > 21 && gpio < 33) return false;     // 22 to 32: not connected + SPI FLASH
-    //if (gpio > 32 && gpio < 38) return false;     // 33 to 37: not available if using _octal_ SPI Flash or _octal_ PSRAM
+    // #if CONFIG_SPIRAM_MODE_OCT && defined(BOARD_HAS_PSRAM)
+    //   if (gpio > 32 && gpio < 38) return !psramFound(); // 33 to 37: not available if using _octal_ SPI Flash or _octal_ PSRAM
+    // #endif
     // 38 to 48 are for general use. Be careful about straping pins GPIO45 and GPIO46 - these may be pull-up or pulled-down on your board.
   #elif defined(CONFIG_IDF_TARGET_ESP32S2)
     // strapping pins: 0, 45 & 46
@@ -748,7 +768,7 @@ bool PinManagerClass::isPinOk(byte gpio, bool output)
   return false;
 }
 
-PinOwner PinManagerClass::getPinOwner(byte gpio) {
+PinOwner PinManagerClass::getPinOwner(byte gpio) const {
   if (gpio >= WLED_NUM_PINS) return PinOwner::None; // catch error case, to avoid array out-of-bounds access
   if (!isPinOk(gpio, false)) return PinOwner::None;
   return ownerTag[gpio];

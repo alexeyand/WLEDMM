@@ -58,6 +58,7 @@ void toggleOnOff()
   if (bri == 0)
   {
     bri = briLast;
+    strip.restartRuntime(false);
   } else
   {
     briLast = bri;
@@ -68,7 +69,7 @@ void toggleOnOff()
 
 
 //scales the brightness with the briMultiplier factor
-IRAM_ATTR_YN byte scaledBri(byte in)  // WLEDMM added IRAM_ATTR_YN
+IRAM_ATTR_YN __attribute__((hot)) byte scaledBri(byte in)  // WLEDMM added IRAM_ATTR_YN
 {
   if (briMultiplier == 100) return(in); // WLEDMM shortcut
   uint_fast16_t val = ((uint_fast16_t)in*(uint_fast16_t)briMultiplier)/100; // WLEDMM
@@ -105,6 +106,7 @@ void stateUpdated(byte callMode) {
     if (stateChanged) currentPreset = 0; //something changed, so we are no longer in the preset
 
     if (callMode != CALL_MODE_NOTIFICATION && callMode != CALL_MODE_NO_NOTIFY) notify(callMode);
+    if (bri != briOld && nodeBroadcastEnabled) sendSysInfoUDP(); // update on state
 
     //set flag to update ws and mqtt
     interfaceUpdateCallMode = callMode;
@@ -139,6 +141,8 @@ void stateUpdated(byte callMode) {
     jsonTransitionOnce = false;
     strip.setTransition(transitionDelayTemp);
     if (transitionDelayTemp == 0) {
+      jsonTransitionOnce = false;
+      transitionActive = false;
       applyFinalBri();
       strip.trigger();
       return;
@@ -161,8 +165,12 @@ void stateUpdated(byte callMode) {
 
 void updateInterfaces(uint8_t callMode)
 {
+  if (!interfaceUpdateCallMode || millis() - lastInterfaceUpdate < INTERFACE_UPDATE_COOLDOWN) return;
+
   sendDataWs();
   lastInterfaceUpdate = millis();
+  interfaceUpdateCallMode = 0; //disable
+
   if (callMode == CALL_MODE_WS_SEND) return;
 
   #ifndef WLED_DISABLE_ALEXA
@@ -172,14 +180,13 @@ void updateInterfaces(uint8_t callMode)
   }
   #endif
   doPublishMqtt = true;
-  interfaceUpdateCallMode = 0; //disable
 }
 
 
 void handleTransitions()
 {
   //handle still pending interface update
-  if (interfaceUpdateCallMode && millis() - lastInterfaceUpdate > INTERFACE_UPDATE_COOLDOWN) updateInterfaces(interfaceUpdateCallMode);
+  updateInterfaces(interfaceUpdateCallMode);
 #ifndef WLED_DISABLE_MQTT
   if (doPublishMqtt) publishMqtt();
 #endif
@@ -187,15 +194,18 @@ void handleTransitions()
   if (transitionActive && transitionDelayTemp > 0)
   {
     float tper = (millis() - transitionStartTime)/(float)transitionDelayTemp;
-    if (tper >= 1.0)
+    if (tper >= 1.0f)
     {
       strip.setTransitionMode(false);
+      // restore (global) transition time if not called from UDP notifier or single/temporary transition from JSON (also playlist)
+      if (jsonTransitionOnce) strip.setTransition(transitionDelay);
       transitionActive = false;
+      jsonTransitionOnce = false;
       tperLast = 0;
       applyFinalBri();
       return;
     }
-    if (tper - tperLast < 0.004) return;
+    if (tper - tperLast < 0.004f) return;
     tperLast = tper;
     briT = briOld + ((bri - briOld) * tper);
 
@@ -205,7 +215,7 @@ void handleTransitions()
 
 
 // legacy method, applies values from col, effectCurrent, ... to selected segments
-void colorUpdated(byte callMode){
+void colorUpdated(byte callMode) {
   applyValuesToSelectedSegs();
   stateUpdated(callMode);
 }
@@ -293,7 +303,7 @@ void handleNightlight()
 }
 
 //utility for FastLED to use our custom timer
-uint32_t __attribute__((pure)) get_millisecond_timer() // WLEDMM attribute pure = does not write other momory
+uint32_t __attribute__((pure)) get_millisecond_timer() // WLEDMM attribute pure = does not write other memory
 {
   return strip.now;
 }

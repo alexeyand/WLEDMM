@@ -51,7 +51,8 @@ bool getJsonValue(const JsonVariant& element, DestType& destination, const Defau
 
 //colors.cpp
 uint32_t __attribute__((const)) color_blend(uint32_t,uint32_t,uint_fast16_t,bool b16=false);  // WLEDMM: added attribute const
-uint32_t  __attribute__((const)) color_add(uint32_t,uint32_t);                                // WLEDMM: added attribute const
+uint32_t __attribute__((const)) color_add(uint32_t,uint32_t, bool fast=false);                // WLEDMM: added attribute const
+uint32_t __attribute__((const)) color_fade(uint32_t c1, uint8_t amount, bool video=false);
 inline uint32_t colorFromRgbw(byte* rgbw) { return uint32_t((byte(rgbw[3]) << 24) | (byte(rgbw[0]) << 16) | (byte(rgbw[1]) << 8) | (byte(rgbw[2]))); }
 void colorHStoRGB(uint16_t hue, byte sat, byte* rgb); //hue, sat to rgb
 void colorKtoRGB(uint16_t kelvin, byte* rgb);
@@ -68,10 +69,14 @@ void calcGammaTable(float gamma);
 uint8_t __attribute__((pure)) gamma8(uint8_t b);                                              // WLEDMM: added attribute pure
 uint32_t __attribute__((pure)) gamma32(uint32_t);                                             // WLEDMM: added attribute pure
 uint8_t unGamma8(uint8_t value);                                                              // WLEDMM revert gamma correction
+uint32_t unGamma24(uint32_t c);                                                               // WLEDMM for 24bit color (white left as-is)
 
-//dmx.cpp
-void initDMX();
-void handleDMX();
+//dmx_output.cpp
+void initDMXOutput();
+void handleDMXOutput();
+
+//dmx_input.cpp
+void initDMXInput();
 void handleDMXInput();
 
 //e131.cpp
@@ -89,6 +94,7 @@ bool readObjectFromFileUsingId(const char* file, uint16_t id, JsonDocument* dest
 bool readObjectFromFile(const char* file, const char* key, JsonDocument* dest);
 void updateFSInfo();
 void closeFile();
+void invalidateFileNameCache();   // WLEDMM call when new files were uploaded
 
 //hue.cpp
 void handleHue();
@@ -205,6 +211,7 @@ void _overlayAnalogCountdown();
 void _overlayAnalogClock();
 
 //playlist.cpp
+void suspendPlaylist(); // WLEDMM support function for auto playlist usermod
 void shufflePlaylist();
 void unloadPlaylist();
 int16_t loadPlaylist(JsonObject playlistObject, byte presetId = 0);
@@ -234,7 +241,7 @@ bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply=tru
 
 //udp.cpp
 void notify(byte callMode, bool followUp=false);
-uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, uint8_t *buffer, uint8_t bri=255, bool isRGBW=false);
+uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, uint8_t *buffer, uint8_t bri=255, bool isRGBW=false, uint8_t artnet_outouts=1, uint16_t artnet_leds_per_output=1, uint8_t artnet_fps_limit=1);
 void realtimeLock(uint32_t timeoutMs, byte md = REALTIME_MODE_GENERIC);
 void exitRealtime();
 void handleNotifications();
@@ -243,7 +250,7 @@ void refreshNodeList();
 void sendSysInfoUDP();
 
 //network.cpp
-int getSignalQuality(int rssi);
+int getSignalQuality(int rssi) __attribute__((const));
 void WiFiEvent(WiFiEvent_t event);
 
 //um_manager.cpp
@@ -292,6 +299,7 @@ class Usermod {
     virtual ~Usermod() { if (um_data) delete um_data; }
     virtual void setup() = 0; // pure virtual, has to be overriden
     virtual void loop() = 0;  // pure virtual, has to be overriden
+    virtual void loop2() {}                                                  // WLEDMM called just before effects will be processed
     virtual void handleOverlayDraw() {}                                      // called after all effects have been processed, just before strip.show()
     virtual bool handleButton(uint8_t b) { return false; }                   // button overrides are possible here
     virtual bool getUMData(um_data_t **data) { if (data) *data = nullptr; return false; }; // usermod data exchange [see examples for audio effects]
@@ -318,10 +326,11 @@ class Usermod {
 class UsermodManager {
   private:
     Usermod* ums[WLED_MAX_USERMODS];
-    byte numMods = 0;
+    unsigned numMods = 0;
 
   public:
     void loop();
+    void loop2();   // WLEDMM loop just before drawing effects (presets and everything already handled)
     void handleOverlayDraw();
     bool handleButton(uint8_t b);
     bool getUMData(um_data_t **um_data, uint8_t mod_id = USERMOD_ID_RESERVED); // USERMOD_ID_RESERVED will poll all usermods
@@ -356,22 +365,41 @@ int getNumVal(const String* req, uint16_t pos);
 void parseNumber(const char* str, byte* val, byte minv=0, byte maxv=255);
 bool getVal(JsonVariant elem, byte* val, byte minv=0, byte maxv=255);
 bool updateVal(const char* req, const char* key, byte* val, byte minv=0, byte maxv=255);
+void oappendUseDeflate(bool OnOff); // enable / disable string squeezing
 bool oappend(const char* txt); // append new c string to temp buffer efficiently
 bool oappendi(int i);          // append new number to temp buffer efficiently
 void sappend(char stype, const char* key, int val);
 void sappends(char stype, const char* key, char* val);
 void prepareHostname(char* hostname);
-bool isAsterisksOnly(const char* str, byte maxLen);
+bool isAsterisksOnly(const char* str, byte maxLen)  __attribute__((pure));
 bool requestJSONBufferLock(uint8_t module=255);
 void releaseJSONBufferLock();
 uint8_t extractModeName(uint8_t mode, const char *src, char *dest, uint8_t maxLen);
 uint8_t extractModeSlider(uint8_t mode, uint8_t slider, char *dest, uint8_t maxLen, uint8_t *var = nullptr);
 int16_t extractModeDefaults(uint8_t mode, const char *segVar);
+void checkSettingsPIN(const char *pin);
 uint16_t  __attribute__((pure)) crc16(const unsigned char* data_p, size_t length);   // WLEDMM: added attribute pure
 um_data_t* simulateSound(uint8_t simulationId);
 // WLEDMM enumerateLedmaps(); moved to FX.h
+uint8_t get_random_wheel_index(uint8_t pos);
 CRGB getCRGBForBand(int x, uint8_t *fftResult, int pal); //WLEDMM netmindz ar palette
 char *cleanUpName(char *in); // to clean up a name that was read from file
+
+// RAII guard class for the JSON Buffer lock
+// Modeled after std::lock_guard
+class JSONBufferGuard {
+  bool holding_lock;
+  public:
+    inline JSONBufferGuard(uint8_t module=255) : holding_lock(requestJSONBufferLock(module)) {};
+    inline ~JSONBufferGuard() { if (holding_lock) releaseJSONBufferLock(); };
+    inline JSONBufferGuard(const JSONBufferGuard&) = delete; // Noncopyable
+    inline JSONBufferGuard& operator=(const JSONBufferGuard&) = delete;
+    inline JSONBufferGuard(JSONBufferGuard&& r) : holding_lock(r.holding_lock) { r.holding_lock = false; };  // but movable
+    inline JSONBufferGuard& operator=(JSONBufferGuard&& r) { holding_lock |= r.holding_lock; r.holding_lock = false; return *this; };
+    inline bool owns_lock() const { return holding_lock; }
+    explicit inline operator bool() const { return owns_lock(); };
+    inline void release() { if (holding_lock) releaseJSONBufferLock(); holding_lock = false; }
+};
 
 #ifdef WLED_ADD_EEPROM_SUPPORT
 //wled_eeprom.cpp
@@ -384,13 +412,14 @@ void clearEEPROM();
 //wled_math.cpp
 #ifndef WLED_USE_REAL_MATH
   template <typename T> T atan_t(T x);
-  float cos_t(float phi);
-  float sin_t(float x);
-  float tan_t(float x);
+  float cos_t(float phi)  __attribute__((const));
+  float sin_t(float x)    __attribute__((const));
+  float tan_t(float x)    __attribute__((const));
   float acos_t(float x);
   float asin_t(float x);
-  float floor_t(float x);
-  float fmod_t(float num, float denom);
+  float atan_t(float x)   __attribute__((const));
+  float floor_t(float x)  __attribute__((const));
+  float fmod_t(float num, float denom)   __attribute__((const));
 #else
   #include <math.h>   // WLEDMM use "float" variants
   #define sin_t sinf

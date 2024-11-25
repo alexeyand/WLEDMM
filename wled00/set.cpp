@@ -46,6 +46,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     if (passlen == 0 || (passlen > 7 && !isAsterisksOnly(request->arg(F("AP")).c_str(), 65))) strlcpy(apPass, request->arg(F("AP")).c_str(), 65);
     int t = request->arg(F("AC")).toInt(); if (t > 0 && t < 14) apChannel = t;
 
+    force802_3g = request->hasArg(F("FG"));
     noWifiSleep = request->hasArg(F("WS"));
 
     #ifndef WLED_DISABLE_ESPNOW
@@ -94,8 +95,8 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       }
     }
 
-    uint8_t colorOrder, type, skip, awmode, channelSwap;
-    uint16_t length, start;
+    uint8_t colorOrder, type, skip, awmode, channelSwap, artnet_outputs, artnet_fps_limit;
+    uint16_t length, start, artnet_leds_per_output;
     uint8_t pins[5] = {255, 255, 255, 255, 255};
 
     autoSegments = request->hasArg(F("MS"));
@@ -109,6 +110,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
 
     bool busesChanged = false;
     for (uint8_t s = 0; s < WLED_MAX_BUSSES+WLED_MIN_VIRTUAL_BUSSES; s++) {
+      // "48+s" means the ASCII character "0", so 48+1 = ASCII for "1", etc - and "[3]=0" means null-terminate the string.
       char lp[4] = "L0"; lp[2] = 48+s; lp[3] = 0; //ascii 0-9 //strip data pin
       char lc[4] = "LC"; lc[2] = 48+s; lc[3] = 0; //strip length
       char co[4] = "CO"; co[2] = 48+s; co[3] = 0; //strip color order
@@ -120,6 +122,9 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       char aw[4] = "AW"; aw[2] = 48+s; aw[3] = 0; //auto white mode
       char wo[4] = "WO"; wo[2] = 48+s; wo[3] = 0; //channel swap
       char sp[4] = "SP"; sp[2] = 48+s; sp[3] = 0; //bus clock speed (DotStar & PWM)
+      char ao[4] = "AO"; ao[2] = 48+s; ao[3] = 0; //Art-Net outputs
+      char al[4] = "AL"; al[2] = 48+s; al[3] = 0; //Art-Net LEDs per output
+      char af[4] = "AF"; af[2] = 48+s; af[3] = 0; //Art-Net FPS limit
       if (!request->hasArg(lp)) {
         DEBUG_PRINT(F("No data for "));
         DEBUG_PRINTLN(s);
@@ -131,7 +136,6 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         pins[i] = (request->arg(lp).length() > 0) ? request->arg(lp).toInt() : 255;
       }
       type = request->arg(lt).toInt();
-      type |= request->hasArg(rf) << 7; // off refresh override
       skip = request->arg(sl).toInt();
       colorOrder = request->arg(co).toInt();
       start = (request->hasArg(ls)) ? request->arg(ls).toInt() : t;
@@ -159,15 +163,21 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
           case 2 : freqHz =  5000; break;
           case 3 : freqHz = 10000; break;
           case 4 : freqHz = 20000; break;
+          case 5 : freqHz = 40000; break; // WLEDMM max speed 40Mhz - requires carefull wiring
+          case 6 : freqHz = 60000; break; // WLEDMM overspeed 60Mhz - may or may not work
         }
       } else {
         freqHz = 0;
       }
-      channelSwap = (type == TYPE_SK6812_RGBW || type == TYPE_TM1814) ? request->arg(wo).toInt() : 0;
+      channelSwap = Bus::hasWhite(type) ? request->arg(wo).toInt() : 0;
+      type |= request->hasArg(rf) << 7; // off refresh override
+      artnet_outputs         = (request->hasArg(ao)) ? request->arg(ao).toInt() : 1;
+      artnet_leds_per_output = (request->hasArg(al)) ? request->arg(al).toInt() : length;
+      artnet_fps_limit       = (request->hasArg(af)) ? request->arg(af).toInt() : 33333/length;
       // actual finalization is done in WLED::loop() (removing old busses and adding new)
       // this may happen even before this loop is finished so we do "doInitBusses" after the loop
       if (busConfigs[s] != nullptr) delete busConfigs[s];
-      busConfigs[s] = new BusConfig(type, pins, start, length, colorOrder | (channelSwap<<4), request->hasArg(cv), skip, awmode, freqHz);
+      busConfigs[s] = new BusConfig(type, pins, start, length, colorOrder | (channelSwap<<4), request->hasArg(cv), skip, awmode, freqHz, artnet_outputs, artnet_leds_per_output, artnet_fps_limit);
       busesChanged = true;
     }
     //doInitBusses = busesChanged; // we will do that below to ensure all input data is processed
@@ -186,7 +196,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     }
     busses.updateColorOrderMap(com);
 
-    // upate other pins
+    // update other pins
     int hw_ir_pin = request->arg(F("IR")).toInt();
     if (pinManager.allocatePin(hw_ir_pin,false, PinOwner::IR)) {
       irPin = hw_ir_pin;
@@ -241,8 +251,8 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     }
     touchThreshold = request->arg(F("TT")).toInt();
 
-    strip.ablMilliampsMax = request->arg(F("MA")).toInt();
-    strip.milliampsPerLed = request->arg(F("LA")).toInt();
+    strip.ablMilliampsMax = max(0L, request->arg(F("MA")).toInt());
+    strip.milliampsPerLed = max(0L, request->arg(F("LA")).toInt());
 
     briS = request->arg(F("CA")).toInt();
 
@@ -357,9 +367,11 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
     if (t >= -255  && t <= 255) arlsOffset = t;
 
 #ifdef WLED_ENABLE_DMX_INPUT
-    dmxTransmitPin = request->arg(F("DMT")).toInt();
-    dmxReceivePin = request->arg(F("DMR")).toInt();
-    dmxEnablePin= request->arg(F("DME")).toInt();
+    dmxInputTransmitPin = request->arg(F("IDMT")).toInt();
+    dmxInputReceivePin = request->arg(F("IDMR")).toInt();
+    dmxInputEnablePin = request->arg(F("IDME")).toInt();
+    dmxInputPort = request->arg(F("IDMP")).toInt();
+    if(dmxInputPort <= 0 || dmxInputPort > 2) dmxInputPort = 2;
 #endif
 
     alexaEnabled = request->hasArg(F("AL"));
@@ -426,7 +438,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
 
     //start ntp if not already connected
     if (ntpEnabled && WLED_CONNECTED && !ntpConnected) ntpConnected = ntpUdp.begin(ntpLocalPort);
-    ntpLastSyncTime = 0; // force new NTP query
+    ntpLastSyncTime = NTP_NEVER; // force new NTP query
 
     longitude = request->arg(F("LN")).toFloat();
     latitude = request->arg(F("LT")).toFloat();
@@ -609,7 +621,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       i2c_scl = hw_scl_pin;
       DEBUG_PRINTF("handleSettingsSet(): reserved I2C pins SDA=%d SCL=%d.\n", i2c_sda, i2c_scl);
       #ifdef ESP32
-      Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initilised (Wire.begin() called)
+      Wire.setPins(i2c_sda, i2c_scl); // this will fail if Wire is initialised (Wire.begin() called)
       #endif
       // Wire.begin(); // WLEDMM moved into pinManager
     } else {
@@ -710,10 +722,10 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         DEBUG_PRINTLN(value);
       } else {
         // we are using a hidden field with the same name as our parameter (!before the actual parameter!)
-        // to describe the type of parameter (text,float,int), for boolean patameters the first field contains "off"
+        // to describe the type of parameter (text,float,int), for boolean parameters the first field contains "off"
         // so checkboxes have one or two fields (first is always "false", existence of second depends on checkmark and may be "true")
         if (subObj[name].isNull()) {
-          // the first occurence of the field describes the parameter type (used in next loop)
+          // the first occurrence of the field describes the parameter type (used in next loop)
           if (value == "false") subObj[name] = false; // checkboxes may have only one field
           else                  subObj[name] = value;
         } else {
@@ -919,6 +931,9 @@ bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply)
     applyPreset(presetCycCurr);
   }
 
+  pos = req.indexOf(F("NP")); //advances to next preset in a playlist
+  if (pos > 0) doAdvancePlaylist = true;
+  
   //set brightness
   updateVal(req.c_str(), "&A=", &bri);
 
@@ -1054,7 +1069,7 @@ bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply)
   for (uint8_t i = 0; i < strip.getSegmentsNum(); i++) {
     Segment& seg = strip.getSegment(i);
     if (i != selectedSeg && (singleSegment || !seg.isActive() || !seg.isSelected())) continue; // skip non main segments if not applying to all
-    if (fxModeChanged)    seg.setMode(effectIn, req.indexOf(F("FXD="))>0);  // apply defaults if FXD= is specified
+    if (fxModeChanged)    seg.setMode(effectIn, req.indexOf(F("FXD="))>0, req.indexOf(F("FXD2="))>0);  // apply defaults if FXD= is specified
     if (speedChanged)     seg.speed     = speedIn;
     if (intensityChanged) seg.intensity = intensityIn;
     if (paletteChanged)   seg.setPalette(paletteIn);

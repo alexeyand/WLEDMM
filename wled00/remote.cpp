@@ -17,9 +17,15 @@
 #define WIZMOTE_BUTTON_BRIGHT_UP   9
 #define WIZMOTE_BUTTON_BRIGHT_DOWN 8
 
+#define WIZ_SMART_BUTTON_ON          100
+#define WIZ_SMART_BUTTON_OFF         101
+#define WIZ_SMART_BUTTON_BRIGHT_UP   102
+#define WIZ_SMART_BUTTON_BRIGHT_DOWN 103
+
 #ifdef WLED_DISABLE_ESPNOW
 void handleRemote(){}
 #else
+#pragma message "ESP-NOW remote driver enabled"
 
 #if !defined(ARDUINO_ARCH_ESP32) && !defined(ESP_OK)
 #define ESP_OK 0  // add missing constant for stupid esp8266
@@ -30,11 +36,11 @@ void handleRemote(){}
 // since it's broadly commercially available and works out of the box as a drop-in
 typedef struct message_structure {
   uint8_t program;      // 0x91 for ON button, 0x81 for all others
-  uint8_t seq[4];       // Incremetal sequence number 32 bit unsigned integer LSB first
+  uint8_t seq[4];       // Incremental sequence number 32 bit unsigned integer LSB first
   uint8_t byte5 = 32;   // Unknown
   uint8_t button;       // Identifies which button is being pressed
   uint8_t byte8 = 1;    // Unknown, but always 0x01
-  uint8_t byte9 = 100;  // Unnkown, but always 0x64
+  uint8_t byte9 = 100;  // Unknown, but always 0x64
 
   uint8_t byte10;  // Unknown, maybe checksum
   uint8_t byte11;  // Unknown, maybe checksum
@@ -114,6 +120,8 @@ static void setOff() {
 }
 
 static void presetWithFallback(uint8_t presetID, uint8_t effectID, uint8_t paletteID) {
+  resetNightMode();
+  unloadPlaylist();
   applyPresetWithFallback(presetID, CALL_MODE_BUTTON_PRESET, effectID, paletteID);
 }
  
@@ -146,7 +154,6 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     return;
   }
 
-
   USER_PRINT(F("\nIncoming ESP Now Packet["));
   USER_PRINT(cur_seq);
   USER_PRINT(F("] from sender["));
@@ -163,8 +170,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     case WIZMOTE_BUTTON_NIGHT          : activateNightMode();                             stateUpdated(CALL_MODE_BUTTON); break;
     case WIZMOTE_BUTTON_BRIGHT_UP      : brightnessUp();                                  stateUpdated(CALL_MODE_BUTTON); break;
     case WIZMOTE_BUTTON_BRIGHT_DOWN    : brightnessDown();                                stateUpdated(CALL_MODE_BUTTON); break;
+    case WIZ_SMART_BUTTON_ON           : setOn();                                         break;
+    case WIZ_SMART_BUTTON_OFF          : setOff();                                        break;
+    case WIZ_SMART_BUTTON_BRIGHT_UP    : brightnessUp();                                  break;
+    case WIZ_SMART_BUTTON_BRIGHT_DOWN  : brightnessDown();                                break;
     default: break;
-
   }
 
   last_seq = cur_seq;
